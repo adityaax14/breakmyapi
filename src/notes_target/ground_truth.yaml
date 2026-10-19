@@ -1,0 +1,31 @@
+# The answer key for the notes target: which bugs exist when each flag is on.
+# With VULN_FLAGS empty, the correct scan result is zero findings.
+
+bugs:
+  - flag: bola
+    check: object_level_access
+    endpoints:
+      - GET /notes/{note_id}
+      - PATCH /notes/{note_id}
+      - DELETE /notes/{note_id}
+  - flag: missing_auth
+    check: missing_auth
+    endpoints:
+      - GET /notes
+  - flag: mass_assignment
+    check: mass_assignment
+    endpoints:
+      - PATCH /users/me
+    detail: the client can set "role", which only the server may change
+  - flag: excessive_data
+    check: excessive_data
+    endpoints:
+      - GET /users/me
+    detail: the response includes email and password_hash, which the spec does not list
+
+# Inputs the owner of an API gives a scan.
+test_users:
+  a: {username: alice, password: alice-pass}
+  b: {username: bob, password: bob-pass}
+seed_ids:
+  a_note_ids: [1, 2]

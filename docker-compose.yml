@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: breakmyapi
+      POSTGRES_PASSWORD: breakmyapi
+      POSTGRES_DB: breakmyapi
+    ports:
+      # 5433 on the host so it does not clash with a local Postgres on 5432.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U breakmyapi"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:

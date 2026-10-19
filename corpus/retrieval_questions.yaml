@@ -1,0 +1,72 @@
+# The answer key for SEARCH (like ground_truth.yaml is the answer key for the scanner).
+#
+#   question: what the agent (or a user) would ask
+#   check:    which of our checks the question is about (used by the check filter)
+#   relevant: chunk ids that count as a correct answer; finding ANY of them counts as a hit
+#
+# These labels are judgement calls made from the chunk headings. Improve them as you read the chunks.
+
+questions:
+  - question: A logged-in user changed the note id in the URL and could read another user's note. Is this a known vulnerability?
+    check: object_level_access
+    relevant: [api1-bola-01, api1-bola-02, api1-bola-03, api1-bola-04, api1-bola-05, cs-idor-01, cs-idor-02, cs-idor-03]
+
+  - question: How should an API check that the caller owns the record they are asking for?
+    check: object_level_access
+    relevant: [api1-bola-06, cs-authorization-07, cs-authorization-17, cs-authorization-18, cs-authorization-19, cs-authorization-20, cs-idor-05, cs-idor-06]
+
+  - question: Are sequential numeric ids for records dangerous?
+    check: object_level_access
+    relevant: [cs-idor-04, api1-bola-06, cs-authorization-17, cs-authorization-18, cs-authorization-19, cs-authorization-20]
+
+  - question: An endpoint returns data even when no login token is sent.
+    check: missing_auth
+    relevant: [api2-broken-authentication-01, api2-broken-authentication-02, cs-rest-security-04]
+
+  - question: How should a REST API validate JWT bearer tokens?
+    check: missing_auth
+    relevant: [cs-rest-security-05, cs-rest-security-06, cs-rest-security-07]
+
+  - question: The server accepted role=admin when the user updated their own profile.
+    check: mass_assignment
+    relevant: [api3-bopla-02, api3-bopla-03, api3-bopla-04, api3-bopla-05, cs-mass-assignment-01, cs-mass-assignment-03, cs-mass-assignment-04, cs-mass-assignment-05]
+
+  - question: How do I stop clients from setting fields they should not be allowed to change?
+    check: mass_assignment
+    relevant: [api3-bopla-06, cs-mass-assignment-06, cs-mass-assignment-07, cs-mass-assignment-08, cs-mass-assignment-10]
+
+  - question: Fix mass assignment in a Django app.
+    check: mass_assignment
+    relevant: [cs-mass-assignment-13]
+
+  - question: Fix mass assignment in Node.js with Mongoose.
+    check: mass_assignment
+    relevant: [cs-mass-assignment-10, cs-mass-assignment-11]
+
+  - question: The user profile response includes the password hash and the email address.
+    check: excessive_data
+    relevant: [api3-bopla-01, api3-bopla-02, api3-bopla-03, api3-bopla-06]
+
+  - question: Is it fine to return the whole database object and let the frontend hide the private fields?
+    check: excessive_data
+    relevant: [api3-bopla-01, api3-bopla-02, api3-bopla-06]
+
+  - question: How do I stop attackers from guessing passwords at the login endpoint?
+    check: no_login_rate_limit
+    relevant: [cs-authentication-31, cs-authentication-33, cs-authentication-34, cs-authentication-35, api2-broken-authentication-02, api2-broken-authentication-05]
+
+  - question: A client can ask for page_size=1000000 and get the whole table back.
+    check: no_page_size_limit
+    relevant: [api4-resource-consumption-01, api4-resource-consumption-02, api4-resource-consumption-03, api4-resource-consumption-04, api4-resource-consumption-05, api4-resource-consumption-06]
+
+  - question: Sending text where a number is expected crashes the API with a 500 error.
+    check: bad_input_handling
+    relevant: [cs-input-validation-01, cs-input-validation-02, cs-input-validation-03, cs-input-validation-04, cs-input-validation-05, cs-rest-security-15]
+
+  - question: The API shows a full stack trace to the user when something goes wrong.
+    check: leaky_errors
+    relevant: [cs-error-handling-01, cs-error-handling-02, cs-error-handling-03, cs-error-handling-04, cs-error-handling-05, cs-rest-security-20, api8-misconfiguration-02]
+
+  - question: A normal user can call the admin endpoint that lists all users.
+    check: admin_route_exposure
+    relevant: [api5-bfla-01, api5-bfla-02, api5-bfla-03, api5-bfla-04, api5-bfla-05, cs-authorization-04, cs-authorization-05, cs-authorization-06]

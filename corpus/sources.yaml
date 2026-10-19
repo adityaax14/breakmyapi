@@ -1,0 +1,113 @@
+# The documents our RAG corpus is built from. All are from OWASP (licence: CC BY-SA 4.0,
+# which allows reuse with attribution, so every chunk keeps its source url for citations).
+#
+#   id:    short name; the downloaded file is saved as corpus/raw/<id>.md
+#   title: human-readable name
+#   url:   the page a person reads (used in citations)
+#   raw:   the markdown file we actually download
+#   tags:  which of our checks (from checks.py) the document is about; [] = none of them
+
+sources:
+  # ---- OWASP API Security Top 10 (2023) ----
+  - id: api1-bola
+    title: "API1:2023 Broken Object Level Authorization"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa1-broken-object-level-authorization.md
+    tags: [object_level_access]
+
+  - id: api2-broken-authentication
+    title: "API2:2023 Broken Authentication"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa2-broken-authentication.md
+    tags: [missing_auth, no_login_rate_limit]
+
+  - id: api3-bopla
+    title: "API3:2023 Broken Object Property Level Authorization"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa3-broken-object-property-level-authorization.md
+    tags: [mass_assignment, excessive_data]
+
+  - id: api4-resource-consumption
+    title: "API4:2023 Unrestricted Resource Consumption"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa4-unrestricted-resource-consumption.md
+    tags: [no_page_size_limit, no_login_rate_limit]
+
+  - id: api5-bfla
+    title: "API5:2023 Broken Function Level Authorization"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa5-broken-function-level-authorization.md
+    tags: [admin_route_exposure]
+
+  - id: api6-business-flows
+    title: "API6:2023 Unrestricted Access to Sensitive Business Flows"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa6-unrestricted-access-to-sensitive-business-flows/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa6-unrestricted-access-to-sensitive-business-flows.md
+    tags: []
+
+  - id: api7-ssrf
+    title: "API7:2023 Server Side Request Forgery"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa7-server-side-request-forgery/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa7-server-side-request-forgery.md
+    tags: []
+
+  - id: api8-misconfiguration
+    title: "API8:2023 Security Misconfiguration"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa8-security-misconfiguration.md
+    tags: [leaky_errors]
+
+  - id: api9-inventory
+    title: "API9:2023 Improper Inventory Management"
+    url: https://owasp.org/API-Security/editions/2023/en/0xa9-improper-inventory-management/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xa9-improper-inventory-management.md
+    tags: []
+
+  - id: api10-unsafe-consumption
+    title: "API10:2023 Unsafe Consumption of APIs"
+    url: https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/
+    raw: https://raw.githubusercontent.com/OWASP/API-Security/master/editions/2023/en/0xaa-unsafe-consumption-of-apis.md
+    tags: []
+
+  # ---- OWASP Cheat Sheet Series ----
+  - id: cs-authorization
+    title: "Authorization Cheat Sheet"
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
+    raw: https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/Authorization_Cheat_Sheet.md
+    tags: [object_level_access, admin_route_exposure]
+
+  - id: cs-idor
+    title: "Insecure Direct Object Reference Prevention Cheat Sheet"
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html
+    raw: https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.md
+    tags: [object_level_access]
+
+  - id: cs-authentication
+    title: "Authentication Cheat Sheet"
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html
+    raw: https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/Authentication_Cheat_Sheet.md
+    tags: [missing_auth, no_login_rate_limit]
+
+  - id: cs-mass-assignment
+    title: "Mass Assignment Cheat Sheet"
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html
+    raw: https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/Mass_Assignment_Cheat_Sheet.md
+    tags: [mass_assignment]
+
+  - id: cs-input-validation
+    title: "Input Validation Cheat Sheet"
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html
+    raw: https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/Input_Validation_Cheat_Sheet.md
+    tags: [bad_input_handling]
+
+  - id: cs-error-handling
+    title: "Error Handling Cheat Sheet"
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
+    raw: https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/Error_Handling_Cheat_Sheet.md
+    tags: [leaky_errors]
+
+  - id: cs-rest-security
+    title: "REST Security Cheat Sheet"
+    url: https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
+    raw: https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/cheatsheets/REST_Security_Cheat_Sheet.md
+    tags: [missing_auth, bad_input_handling, leaky_errors]
