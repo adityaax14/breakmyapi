@@ -16,6 +16,7 @@ dependencies = [
     "langchain-huggingface>=1.2.3",
     "sentence-transformers>=6.1.0",
     "langchain-postgres>=0.0.19",
+    "langgraph>=1.2.16",
 ]
 
 [dependency-groups]

@@ -17,10 +17,11 @@ K = 3  # how many results we look at per question
 
 # Three ways of searching, measured side by side. Each one adds one improvement.
 SETTINGS = {
-    "plain": {"instruction": False, "use_check": False},
-    "+ instruction": {"instruction": True, "use_check": False},
-    "+ check filter": {"instruction": False, "use_check": True},
-    "+ instruction + check filter": {"instruction": True, "use_check": True},
+    "plain": {"instruction": False, "use_check": False, "hybrid": False},
+    "+ instruction": {"instruction": True, "use_check": False, "hybrid": False},
+    "+ check filter": {"instruction": False, "use_check": True, "hybrid": False},
+    "+ hybrid": {"instruction": False, "use_check": False, "hybrid": True},
+    "+ check filter + hybrid": {"instruction": False, "use_check": True, "hybrid": True},
 }
 
 
@@ -45,6 +46,7 @@ def first_correct_rank(question: dict, setting: dict) -> int | None:
         k=K,
         instruction=setting["instruction"],
         check=question["check"] if setting["use_check"] else None,
+        hybrid=setting["hybrid"],
     )
     for rank, hit in enumerate(hits, start=1):
         if hit.chunk_id in question["relevant"]:
