@@ -2,9 +2,17 @@ import time
 import traceback
 import uuid
 
+from sqlalchemy.orm import Session
+
 from breakmyapi.db import SessionLocal
-from breakmyapi.models import Scan
+from breakmyapi.models import Scan, ScanEvent
 from breakmyapi.spec.parser import parse_endpoints
+
+
+def log(session: Session, scan: Scan, message: str) -> None:
+    """Write one line in the scan's diary and save it at once, so the live stream can see it."""
+    session.add(ScanEvent(scan_id=scan.id, message=message))
+    session.commit()  # also saves any change to the scan itself, such as its status
 
 
 def run_scan(scan_id: uuid.UUID) -> None:
@@ -14,14 +22,21 @@ def run_scan(scan_id: uuid.UUID) -> None:
             return
 
         scan.status = "running"
-        session.commit()
+        log(session, scan, "scan started")
 
         try:
             endpoints = parse_endpoints(scan.spec)
-            print(f"scan {scan_id}: found {len(endpoints)} endpoints")
-            time.sleep(5)  # placeholder: the real agent will run here
+            log(session, scan, f"read the spec: {len(endpoints)} endpoints")
+
+            # Placeholder: the real agent will run here. For now, pretend to look at each endpoint.
+            for endpoint in endpoints:
+                time.sleep(1)
+                log(session, scan, f"looked at {endpoint.method} {endpoint.path}")
+
             scan.status = "completed"
+            log(session, scan, "scan completed")
         except Exception:
             traceback.print_exc()
+            session.rollback()
             scan.status = "failed"
-        session.commit()
+            log(session, scan, "scan failed")

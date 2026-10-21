@@ -27,7 +27,7 @@ export interface LogEntry {
   time: string;
   method: string;
   path: string;
-  status: number | "network error";
+  status: number | "network error" | "stream";
   ms: number;
 }
 
@@ -88,3 +88,68 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const createScan = (body: ScanCreate) => request<Scan>("POST", "/scans", body);
 export const getScan = (id: string) => request<Scan>("GET", `/scans/${id}`);
+
+// ---- the OWASP library (RAG search) ----
+
+export interface CheckInfo {
+  id: string;
+  name: string;
+}
+
+export interface LibraryHit {
+  chunk_id: string;
+  heading: string;
+  url: string;
+  score: number;
+  text: string;
+}
+
+export const getChecks = () => request<CheckInfo[]>("GET", "/library/checks");
+
+export function searchLibrary(q: string, check: string | null) {
+  // URLSearchParams turns {q: "role admin"} into "q=role+admin", escaping spaces and symbols safely.
+  const params = new URLSearchParams({ q });
+  if (check) params.set("check", check);
+  return request<LibraryHit[]>("GET", `/library/search?${params}`);
+}
+
+export interface AskResult {
+  answer: string;
+  sources: LibraryHit[]; // numbered [1], [2], ... in this order
+  cited: number[];
+  tokens: number;
+}
+
+export const askLibrary = (question: string, check: string | null) =>
+  request<AskResult>("POST", "/library/ask", { question, check });
+
+// ---- live updates (Server-Sent Events) ----
+
+export interface ScanEvent {
+  message: string;
+  status: ScanStatus;
+}
+
+// Opens ONE connection; the server pushes a message every time the scan writes a diary line.
+// Returns a function that closes the connection.
+export function streamScan(
+  id: string,
+  onEvent: (event: ScanEvent) => void,
+  onDone: (status: ScanStatus) => void,
+  onError: () => void,
+): () => void {
+  const path = `/scans/${id}/stream`;
+  record({ method: "GET", path, status: "stream", ms: 0 });
+
+  const source = new EventSource(API + path);
+  source.onmessage = (message) => onEvent(JSON.parse(message.data));
+  source.addEventListener("done", (message) => {
+    source.close(); // finished: close it, or the browser would reconnect by itself
+    onDone(JSON.parse((message as MessageEvent).data).status);
+  });
+  source.onerror = () => {
+    source.close();
+    onError();
+  };
+  return () => source.close();
+}

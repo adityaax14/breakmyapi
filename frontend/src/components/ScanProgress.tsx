@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ApiError, getScan, isFinished, type Scan, type ScanStatus } from "../api";
+import { isFinished, streamScan, type Scan, type ScanStatus } from "../api";
 
 const STEPS: { key: ScanStatus; label: string; hint: string }[] = [
   { key: "queued", label: "Queued", hint: "Saved in the database, waiting for the runner" },
@@ -13,29 +13,30 @@ function stepIndex(status: ScanStatus) {
   return STEPS.findIndex((s) => s.key === status);
 }
 
-// Polling: ask the backend for the scan's status every second until it finishes.
+// Live updates: one open connection, and the server pushes each new diary line (SSE).
 function useScan(initial: Scan) {
   const [scan, setScan] = useState(initial);
+  const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isFinished(scan.status)) return;
-    const timer = setTimeout(async () => {
-      try {
-        setScan(await getScan(scan.id));
-        setError(null);
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Lost contact with the API.");
-      }
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [scan]);
+    const stop = streamScan(
+      initial.id,
+      (event) => {
+        setLog((lines) => [...lines, event.message]);
+        setScan((current) => ({ ...current, status: event.status }));
+      },
+      (status) => setScan((current) => ({ ...current, status })),
+      () => setError("Lost the live connection to the API."),
+    );
+    return stop; // leaving the page closes the connection
+  }, [initial.id]);
 
-  return { scan, error };
+  return { scan, log, error };
 }
 
 export default function ScanProgress({ initial, onReset }: { initial: Scan; onReset: () => void }) {
-  const { scan, error } = useScan(initial);
+  const { scan, log, error } = useScan(initial);
   const current = stepIndex(scan.status);
   const failed = scan.status === "failed" || scan.status === "cancelled";
   const done = isFinished(scan.status);
@@ -81,6 +82,17 @@ export default function ScanProgress({ initial, onReset }: { initial: Scan; onRe
           );
         })}
       </ol>
+
+      {log.length > 0 && (
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Live activity</div>
+          <ol className="space-y-1 font-mono text-xs text-slate-300">
+            {log.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">

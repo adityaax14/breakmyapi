@@ -14,7 +14,7 @@ export default function RequestLog() {
       <div className="mt-4 max-h-[28rem] space-y-1.5 overflow-y-auto font-mono text-xs">
         {entries.length === 0 && <div className="text-slate-600">No requests yet.</div>}
         {entries.map((e) => {
-          const ok = typeof e.status === "number" && e.status < 400;
+          const ok = e.status === "stream" || (typeof e.status === "number" && e.status < 400);
           return (
             <div key={e.id} className="flex items-center gap-2 rounded-lg bg-slate-900/60 px-2.5 py-1.5">
               <span className="text-slate-500">{e.time}</span>

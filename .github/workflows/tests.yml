@@ -1,0 +1,25 @@
+# CI: GitHub runs this on its own Linux machine every time code is pushed or a pull request
+# is opened. If any test fails, the commit gets a red X on GitHub.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Copy the repository onto the machine.
+      - uses: actions/checkout@v4
+
+      # 2. Install uv (and remember downloaded packages between runs, so later runs are faster).
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # 3. Install Python (the version in .python-version) and exactly the packages in uv.lock.
+      - run: uv sync --locked
+
+      # 4. Run the tests. A failing test makes this step, and the whole run, fail.
+      - run: uv run pytest -v
