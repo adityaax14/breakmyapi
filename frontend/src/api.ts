@@ -88,6 +88,21 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const createScan = (body: ScanCreate) => request<Scan>("POST", "/scans", body);
 export const getScan = (id: string) => request<Scan>("GET", `/scans/${id}`);
+export const cancelScan = (id: string) => request<Scan>("POST", `/scans/${id}/cancel`);
+
+export interface ScanSummary extends Scan {
+  created_at: string;
+}
+
+export interface ScanPage {
+  items: ScanSummary[];
+  total: number;
+}
+
+export const PAGE_SIZE = 10;
+
+export const listScans = (page: number) =>
+  request<ScanPage>("GET", `/scans?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`);
 
 // ---- the OWASP library (RAG search) ----
 

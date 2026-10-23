@@ -1,12 +1,13 @@
 import { useState } from "react";
 
 import type { Scan } from "./api";
+import History from "./components/History";
 import Library from "./components/Library";
 import RequestLog from "./components/RequestLog";
 import ScanForm from "./components/ScanForm";
 import ScanProgress from "./components/ScanProgress";
 
-type Tab = "scan" | "library";
+type Tab = "scan" | "history" | "library";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("scan");
@@ -33,6 +34,9 @@ export default function App() {
             <button className={tabClass("scan")} onClick={() => setTab("scan")}>
               Scan
             </button>
+            <button className={tabClass("history")} onClick={() => setTab("history")}>
+              History
+            </button>
             <button className={tabClass("library")} onClick={() => setTab("library")}>
               Library
             </button>
@@ -51,6 +55,13 @@ export default function App() {
         <main className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 backdrop-blur">
           {tab === "library" ? (
             <Library />
+          ) : tab === "history" ? (
+            <History
+              onOpen={(picked) => {
+                setScan(picked); // open the picked scan ...
+                setTab("scan"); // ... on the Scan tab, where its live log replays
+              }}
+            />
           ) : scan ? (
             <ScanProgress key={scan.id} initial={scan} onReset={() => setScan(null)} />
           ) : (

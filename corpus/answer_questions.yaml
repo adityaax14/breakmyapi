@@ -1,0 +1,44 @@
+# Test questions for the GENERATION half of RAG (rag/eval_answers.py).
+#
+#   question: what a user asks on the Ask page
+#   check:    topic filter to use (or null for all topics)
+#   covered:  true  = the library contains the answer, so we expect a cited answer
+#             false = the library does not, so we expect "The library does not cover this."
+
+questions:
+  - question: Should my API return the whole database object and let the frontend hide private fields?
+    check: excessive_data
+    covered: true
+
+  - question: How do I stop clients from changing fields they should not be allowed to change?
+    check: mass_assignment
+    covered: true
+
+  - question: How should an API check that the caller owns the record they are asking for?
+    check: object_level_access
+    covered: true
+
+  - question: How should a REST API validate JWT bearer tokens?
+    check: missing_auth
+    covered: true
+
+  - question: What should error messages shown to API users avoid revealing?
+    check: leaky_errors
+    covered: true
+
+  - question: How can an API limit how much data a single request can ask for?
+    check: no_page_size_limit
+    covered: true
+
+  # Known hard case: in Lesson 27 the model added "403/401", which the source does not say.
+  - question: What should an API do when an authorization check fails?
+    check: object_level_access
+    covered: true
+
+  - question: What is the best temperature for baking bread?
+    check: null
+    covered: false
+
+  - question: How do I configure autoscaling for pods in Kubernetes?
+    check: null
+    covered: false

@@ -16,5 +16,53 @@ services:
       interval: 5s
       retries: 10
 
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    env_file: .env   # the Groq key etc. are given to the container when it starts, never baked into the image
+    environment:
+      # Inside Docker, the other services are reached by their service NAME, on their normal port.
+      DATABASE_URL: postgresql+psycopg://breakmyapi:breakmyapi@postgres:5432/breakmyapi
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf-cache:/root/.cache/huggingface   # keep the downloaded embedding model between restarts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["python", "-m", "breakmyapi.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://breakmyapi:breakmyapi@postgres:5432/breakmyapi
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped   # if the worker crashes, Docker starts it again (and it recovers its scan)
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
+  hf-cache:

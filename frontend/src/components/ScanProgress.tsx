@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { isFinished, streamScan, type Scan, type ScanStatus } from "../api";
+import { cancelScan, isFinished, streamScan, type Scan, type ScanStatus } from "../api";
 
 const STEPS: { key: ScanStatus; label: string; hint: string }[] = [
   { key: "queued", label: "Queued", hint: "Saved in the database, waiting for the runner" },
@@ -32,11 +32,23 @@ function useScan(initial: Scan) {
     return stop; // leaving the page closes the connection
   }, [initial.id]);
 
-  return { scan, log, error };
+  // Ask the backend to stop. The new status also arrives through the live stream,
+  // but we use the reply too, so the page changes even if the stream is slow.
+  async function cancel() {
+    try {
+      const updated = await cancelScan(initial.id);
+      setScan(updated);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return { scan, log, error, cancel };
 }
 
 export default function ScanProgress({ initial, onReset }: { initial: Scan; onReset: () => void }) {
-  const { scan, log, error } = useScan(initial);
+  const { scan, log, error, cancel } = useScan(initial);
+  const [cancelling, setCancelling] = useState(false);
   const current = stepIndex(scan.status);
   const failed = scan.status === "failed" || scan.status === "cancelled";
   const done = isFinished(scan.status);
@@ -103,6 +115,20 @@ export default function ScanProgress({ initial, onReset }: { initial: Scan; onRe
       <div className="rounded-xl border border-dashed border-slate-700 px-4 py-5 text-center text-sm text-slate-500">
         Findings will appear here once the agent and the checks are built.
       </div>
+
+      {!done && (
+        <button
+          disabled={cancelling}
+          onClick={async () => {
+            setCancelling(true);
+            await cancel();
+            setCancelling(false);
+          }}
+          className="w-full rounded-xl border border-rose-500/50 px-4 py-2.5 text-sm text-rose-200 transition hover:bg-rose-500/10 disabled:opacity-50"
+        >
+          {cancelling ? "Cancelling…" : "Cancel scan"}
+        </button>
+      )}
 
       <button
         onClick={onReset}

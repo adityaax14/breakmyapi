@@ -1,0 +1,12 @@
+# Never copy these into the backend image.
+.env
+.git
+.venv
+.github
+frontend
+examples
+tests
+docs
+**/__pycache__
+.pytest_cache
+*.pdf
