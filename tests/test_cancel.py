@@ -3,23 +3,23 @@
 They use the `db` fixture from conftest.py: a throwaway in-memory database.
 """
 
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-import breakmyapi.api.main as main
-import breakmyapi.scan_runner as scan_runner
 from breakmyapi.models import Scan, ScanEvent
+from breakmyapi.rag import search as library
 from breakmyapi.scan_runner import run_scan
 
-SPEC = {"paths": {"/a": {"get": {}}, "/b": {"get": {}}, "/c": {"get": {}}}}  # 3 endpoints = 3 steps
+SPEC = {"paths": {"/a": {"get": {}}, "/b": {"get": {}}, "/c": {"get": {}}}}
 
 
-client = TestClient(main.app)
-
-
-def add_scan(TestSession, status="queued"):
+def add_scan(TestSession, user_id, status="queued"):
     with TestSession() as session:
-        scan = Scan(target_url="http://localhost:8001", spec=SPEC, status=status)
+        scan = Scan(
+            target_url="http://localhost:8001",
+            spec=SPEC,
+            status=status,
+            user_id=user_id,
+        )
         session.add(scan)
         session.commit()
         return scan.id
@@ -32,13 +32,17 @@ def status_of(TestSession, scan_id):
 
 def diary(TestSession, scan_id):
     with TestSession() as session:
-        return session.scalars(select(ScanEvent.message).where(ScanEvent.scan_id == scan_id).order_by(ScanEvent.id)).all()
+        return session.scalars(
+            select(ScanEvent.message)
+            .where(ScanEvent.scan_id == scan_id)
+            .order_by(ScanEvent.id)
+        ).all()
 
 
-def test_cancelling_a_queued_scan_means_the_worker_never_starts_it(db):
-    scan_id = add_scan(db)
+def test_cancelling_a_queued_scan_means_the_worker_never_starts_it(db, priya):
+    scan_id = add_scan(db, priya.user_id)
 
-    response = client.post(f"/scans/{scan_id}/cancel")
+    response = priya.post(f"/scans/{scan_id}/cancel")
     assert response.status_code == 200
     assert response.json()["status"] == "cancelled"
 
@@ -47,43 +51,52 @@ def test_cancelling_a_queued_scan_means_the_worker_never_starts_it(db):
     assert diary(db, scan_id) == ["scan cancelled"]
 
 
-def test_cancelling_a_running_scan_stops_it_before_the_next_step(db, monkeypatch):
-    scan_id = add_scan(db)
+def test_cancelling_a_running_scan_stops_it_before_the_next_step(
+    db, priya, monkeypatch
+):
+    scan_id = add_scan(db, priya.user_id)
 
-    # Press Cancel while the worker is busy with its first step.
-    def press_cancel_during_step(seconds):
-        if "looked at GET /a" not in diary(db, scan_id):
-            client.post(f"/scans/{scan_id}/cancel")
+    # Press Cancel while the agent is busy with its `retrieve` step (the library search).
+    real_search = library.search
 
-    monkeypatch.setattr(scan_runner.time, "sleep", press_cancel_during_step)
+    def search_and_press_cancel(*args, **kwargs):
+        priya.post(f"/scans/{scan_id}/cancel")
+        return real_search(*args, **kwargs)
+
+    monkeypatch.setattr(library, "search", search_and_press_cancel)
     run_scan(scan_id)
 
     lines = diary(db, scan_id)
     assert status_of(db, scan_id) == "cancelled"  # NOT overwritten with "completed"
     assert "scan cancelled" in lines
-    assert "looked at GET /b" not in lines  # it stopped instead of doing the remaining steps
+    assert not any(
+        line.startswith("planned") for line in lines
+    )  # stopped before the next node
     assert "scan completed" not in lines
 
 
-def test_cancelling_twice_is_fine(db):
-    scan_id = add_scan(db)
-    assert client.post(f"/scans/{scan_id}/cancel").status_code == 200
-    assert client.post(f"/scans/{scan_id}/cancel").status_code == 200
+def test_cancelling_twice_is_fine(db, priya):
+    scan_id = add_scan(db, priya.user_id)
+    assert priya.post(f"/scans/{scan_id}/cancel").status_code == 200
+    assert priya.post(f"/scans/{scan_id}/cancel").status_code == 200
     assert diary(db, scan_id) == ["scan cancelled"]  # only one diary line
 
 
-def test_a_finished_scan_cannot_be_cancelled(db):
-    scan_id = add_scan(db, status="completed")
-    response = client.post(f"/scans/{scan_id}/cancel")
+def test_a_finished_scan_cannot_be_cancelled(db, priya):
+    scan_id = add_scan(db, priya.user_id, status="completed")
+    response = priya.post(f"/scans/{scan_id}/cancel")
     assert response.status_code == 409
     assert status_of(db, scan_id) == "completed"
 
 
-def test_cancelling_an_unknown_scan_is_404(db):
-    assert client.post("/scans/00000000-0000-0000-0000-000000000000/cancel").status_code == 404
+def test_cancelling_an_unknown_scan_is_404(priya):
+    assert (
+        priya.post("/scans/00000000-0000-0000-0000-000000000000/cancel").status_code
+        == 404
+    )
 
 
-def test_the_worker_refuses_a_target_that_is_not_allowed(db):
+def test_the_worker_refuses_a_target_that_is_not_allowed(db, priya):
     # As if the scan got into the queue some other way, or the allowlist changed after queueing.
     with db() as session:
         scan = Scan(target_url="http://example.com", spec=SPEC)
@@ -97,8 +110,8 @@ def test_the_worker_refuses_a_target_that_is_not_allowed(db):
     assert not any(line.startswith("looked at") for line in lines)  # nothing was sent
 
 
-def test_a_scan_nobody_cancels_still_completes(db):
-    scan_id = add_scan(db)
+def test_a_scan_nobody_cancels_still_completes(db, priya):
+    scan_id = add_scan(db, priya.user_id)
     run_scan(scan_id)
     assert status_of(db, scan_id) == "completed"
     assert diary(db, scan_id)[-1] == "scan completed"

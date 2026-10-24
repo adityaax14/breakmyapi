@@ -8,6 +8,7 @@ We compare ORIGINS, not whole URLs. An origin is scheme + host + port:
     "https://example.com"              ->  "https://example.com:443"   (443 is the https default)
 """
 
+import uuid
 from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
@@ -50,17 +51,17 @@ def allowed_origins() -> set[str]:
     return {origin_of(o) for o in get_settings().allowed_targets.split(",") if o.strip()}
 
 
-def check_target(url: str, session: Session | None = None) -> None:
+def check_target(url: str, session: Session | None = None, user_id: uuid.UUID | None = None) -> None:
     """Raise TargetError if the URL is broken, or TargetNotAllowed if we may not scan it.
 
-    A target may be scanned if it is on the allowlist, OR its owner has verified it
-    (that needs the database, so pass a session). Without a session only the allowlist
-    counts: forgetting it makes the check stricter, never looser ("fail closed").
+    A target may be scanned if it is on the allowlist, OR this user has verified it
+    (that needs the database and the user). Without them only the allowlist counts:
+    forgetting them makes the check stricter, never looser ("fail closed").
     """
     origin = origin_of(url)
     if origin in allowed_origins():
         return
-    if session is not None and is_verified(session, origin):
+    if session is not None and user_id is not None and is_verified(session, origin, user_id):
         return
     raise TargetNotAllowed(
         f"{origin} is not on the list of allowed targets, and its ownership has not been verified"

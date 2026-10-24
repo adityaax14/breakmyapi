@@ -4,9 +4,7 @@ The default allowlist (config.py) is http://localhost:8001 and http://127.0.0.1:
 """
 
 import pytest
-from fastapi.testclient import TestClient
 
-import breakmyapi.api.main as main
 from breakmyapi.targets import TargetError, TargetNotAllowed, check_target, origin_of
 
 SPEC = "paths:\n  /notes:\n    get: {}\n"
@@ -74,15 +72,12 @@ def test_broken_or_tricky_urls_are_rejected(url):
         check_target(url)
 
 
-client = TestClient(main.app)
-
-
-def test_api_refuses_a_target_not_on_the_list(db):
-    response = client.post("/scans", json={"target_url": "http://example.com", "spec": SPEC})
+def test_api_refuses_a_target_not_on_the_list(priya):
+    response = priya.post("/scans", json={"target_url": "http://example.com", "spec": SPEC})
     assert response.status_code == 403
     assert "not on the list" in response.json()["detail"]
 
 
-def test_api_rejects_a_broken_target_url(db):
-    response = client.post("/scans", json={"target_url": "ftp://localhost:8001", "spec": SPEC})
+def test_api_rejects_a_broken_target_url(priya):
+    response = priya.post("/scans", json={"target_url": "ftp://localhost:8001", "spec": SPEC})
     assert response.status_code == 422

@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     # Safety rule: only these origins may be scanned (comma-separated), until ownership checks exist.
     allowed_targets: str = "http://localhost:8001,http://127.0.0.1:8001"
 
+    # Against password guessing: login attempts per 15 minutes, per email and per IP address.
+    login_window_seconds: int = 15 * 60
+    login_attempts_per_email: int = 10
+    login_attempts_per_ip: int = 30
+    signups_per_ip_per_hour: int = 5          # against mass fake accounts
+    verifies_per_user_per_hour: int = 10      # each verify makes OUR server send a request
+
     ask_daily_limit: int = 30  # questions per client per day on POST /library/ask (each one is an LLM call)
 
 

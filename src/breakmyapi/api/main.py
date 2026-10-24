@@ -4,22 +4,32 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from openai import APIError
 from pydantic import BaseModel, ConfigDict, Field
 from redis import RedisError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only
 
+from breakmyapi.auth import (
+    current_token,
+    current_user,
+    end_session,
+    hash_password,
+    log_in,
+    normalize_email,
+    start_session,
+)
 from breakmyapi.checks import CHECKS
 from breakmyapi.config import get_settings
 from breakmyapi.db import SessionLocal, get_session, init_db
 from breakmyapi.jobs import enqueue_scan
-from breakmyapi.limits import limit_asks
+from breakmyapi.limits import client_ip, limit_asks, too_many, wait_if_over
 from breakmyapi.llm.client import LLMConfigError
-from breakmyapi.models import Scan, ScanEvent, TargetClaim
+from breakmyapi.models import Scan, ScanEvent, TargetClaim, User
 from breakmyapi.rag.answer import answer, body_of
 from breakmyapi.rag.search import search
 from breakmyapi.scan_runner import change_status
@@ -41,7 +51,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins.split(","),
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],  # Authorization carries the login token
 )
 
 
@@ -58,11 +68,26 @@ class ScanOut(BaseModel):
     status: str
 
 
+def own_scan(session: Session, scan_id: uuid.UUID, user: User) -> Scan:
+    """The scan, but only if it belongs to this user.
+
+    Someone else's scan gets the SAME 404 as a scan that doesn't exist, so nobody can even
+    learn that it exists. Skipping this check is exactly the bug BreakMyAPI looks for in other
+    people's APIs (BOLA: Broken Object Level Authorization), so we must not have it ourselves.
+    """
+    scan = session.get(Scan, scan_id)
+    if scan is None or scan.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Scan not found")
+    return scan
+
+
 @app.post("/scans", response_model=ScanOut, status_code=status.HTTP_202_ACCEPTED)
-def create_scan(body: ScanCreate, session: Session = Depends(get_session)):
+def create_scan(
+    body: ScanCreate, user: User = Depends(current_user), session: Session = Depends(get_session)
+):
     # Safety first: refuse targets we may not scan, before saving or queueing anything.
     try:
-        check_target(body.target_url, session)
+        check_target(body.target_url, session, user.id)
     except TargetNotAllowed as e:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(e)) from e
     except TargetError as e:
@@ -75,7 +100,7 @@ def create_scan(body: ScanCreate, session: Session = Depends(get_session)):
     if not parse_endpoints(spec):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Spec defines no endpoints")
 
-    scan = Scan(target_url=body.target_url, spec=spec)
+    scan = Scan(target_url=body.target_url, spec=spec, user_id=user.id)
     session.add(scan)
     session.commit()  # save first, so the worker can always find the scan it is given
 
@@ -90,11 +115,8 @@ def create_scan(body: ScanCreate, session: Session = Depends(get_session)):
 
 
 @app.get("/scans/{scan_id}", response_model=ScanOut)
-def get_scan(scan_id: uuid.UUID, session: Session = Depends(get_session)):
-    scan = session.get(Scan, scan_id)
-    if scan is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Scan not found")
-    return scan
+def get_scan(scan_id: uuid.UUID, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    return own_scan(session, scan_id, user)
 
 
 MAX_PAGE_SIZE = 50  # nobody can ask for more than this many scans at once (check 10, applied to ourselves)
@@ -113,12 +135,14 @@ class ScanPage(BaseModel):
 def list_scans(
     limit: int = Query(default=20, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    """One page of scans, newest first."""
-    total = session.scalar(select(func.count()).select_from(Scan))
+    """One page of YOUR scans, newest first."""
+    total = session.scalar(select(func.count()).select_from(Scan).where(Scan.user_id == user.id))
     scans = session.scalars(
         select(Scan)
+        .where(Scan.user_id == user.id)
         .options(load_only(Scan.id, Scan.target_url, Scan.status, Scan.created_at))  # skip the big spec column
         .order_by(Scan.created_at.desc())
         .limit(limit)
@@ -131,11 +155,9 @@ FINISHED = {"completed", "failed", "cancelled"}
 
 
 @app.post("/scans/{scan_id}/cancel", response_model=ScanOut)
-def cancel_scan(scan_id: uuid.UUID, session: Session = Depends(get_session)):
+def cancel_scan(scan_id: uuid.UUID, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Stop a scan that is waiting or running. The worker notices before its next step."""
-    scan = session.get(Scan, scan_id)
-    if scan is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Scan not found")
+    scan = own_scan(session, scan_id, user)
 
     if change_status(session, scan_id, {"queued", "running"}, "cancelled"):
         session.add(ScanEvent(scan_id=scan_id, message="scan cancelled"))
@@ -151,10 +173,9 @@ def cancel_scan(scan_id: uuid.UUID, session: Session = Depends(get_session)):
 
 
 @app.get("/scans/{scan_id}/stream")
-def stream_scan(scan_id: uuid.UUID, session: Session = Depends(get_session)):
+def stream_scan(scan_id: uuid.UUID, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Server-Sent Events: keep the connection open and push each new diary line as it is written."""
-    if session.get(Scan, scan_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Scan not found")
+    own_scan(session, scan_id, user)  # checked once, before streaming starts
 
     def events():
         last_id = 0  # the newest diary line already sent; a new connection starts from the beginning
@@ -175,6 +196,87 @@ def stream_scan(scan_id: uuid.UUID, session: Session = Depends(get_session)):
             time.sleep(0.5)  # look for new lines twice a second
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+# ---- accounts: sign up, log in, log out ----
+
+
+class Credentials(BaseModel):
+    # something@something.something (spaces around it are allowed: normalize_email trims them)
+    email: str = Field(max_length=320, pattern=r"^\s*[^@\s]+@[^@\s]+\.[^@\s]+\s*$")
+    # At least 10 characters (length beats complexity rules). At most 128, so nobody can make us
+    # hash a 10 MB "password" (Argon2 is deliberately slow).
+    password: str = Field(min_length=10, max_length=128)
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+
+
+class LoginOut(BaseModel):
+    token: str  # send it back on every request as:  Authorization: Bearer <token>
+    user: UserOut
+
+
+@app.post("/auth/signup", response_model=LoginOut, status_code=status.HTTP_201_CREATED)
+def sign_up(body: Credentials, request: Request, session: Session = Depends(get_session)):
+    settings = get_settings()
+    wait = wait_if_over(session, f"signup-ip:{client_ip(request)}", settings.signups_per_ip_per_hour, 3600)
+    if wait:
+        raise too_many(wait, "Too many new accounts from your network. Try again later.")
+
+    user = User(email=normalize_email(body.email), password_hash=hash_password(body.password))
+    session.add(user)
+    try:
+        session.commit()
+    except IntegrityError as e:
+        # The database's UNIQUE rule on email refused it. (Checking with a SELECT first would
+        # not be enough: two sign-ups at the same moment could both pass the check.)
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists") from e
+    return LoginOut(token=start_session(session, user), user=UserOut.model_validate(user))
+
+
+@app.post("/auth/login", response_model=LoginOut)
+def log_in_endpoint(body: Credentials, request: Request, session: Session = Depends(get_session)):
+    # Count the attempt BEFORE checking the password, so a blocked guess costs us nothing.
+    # Two counters: per email (someone guessing one account's password from many places) and
+    # per IP (one place guessing many accounts). Both always count; the longer wait wins.
+    settings = get_settings()
+    window = settings.login_window_seconds
+    waits = [
+        wait_if_over(session, f"login-email:{normalize_email(body.email)}", settings.login_attempts_per_email, window),
+        wait_if_over(session, f"login-ip:{client_ip(request)}", settings.login_attempts_per_ip, window),
+    ]
+    wait = max((w for w in waits if w), default=None)
+    if wait:
+        # The same answer whether the email exists or not (no hints about which accounts exist).
+        raise too_many(wait, "Too many login attempts. Wait a few minutes and try again.")
+
+    user = log_in(session, body.email, body.password)
+    if user is None:
+        # The same answer for "no such email" and "wrong password", so nobody can use this
+        # endpoint to find out which emails have accounts.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong email or password")
+    return LoginOut(token=start_session(session, user), user=UserOut.model_validate(user))
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def log_out(
+    token: str = Depends(current_token),
+    user: User = Depends(current_user),  # only a valid session can be logged out
+    session: Session = Depends(get_session),
+):
+    end_session(session, token)
+
+
+@app.get("/auth/me", response_model=UserOut)
+def me(user: User = Depends(current_user)):
+    """Who am I? The frontend calls this on start-up to check that its saved token still works."""
+    return user
 
 
 # ---- ownership verification: prove you own an API before scanning it ----
@@ -203,27 +305,32 @@ def claim_out(claim: TargetClaim) -> ClaimOut:
 
 
 @app.post("/targets", response_model=ClaimOut, status_code=status.HTTP_201_CREATED)
-def create_claim(body: ClaimCreate, session: Session = Depends(get_session)):
+def create_claim(body: ClaimCreate, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Step 1: "I own this API." We answer with a secret to publish on it."""
     try:
         origin = origin_of(body.target_url)
     except TargetError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
 
-    claim = TargetClaim(origin=origin, token=new_token())
+    claim = TargetClaim(origin=origin, token=new_token(), user_id=user.id)
     session.add(claim)
     session.commit()
     return claim_out(claim)
 
 
 @app.post("/targets/{claim_id}/verify", response_model=ClaimOut)
-def verify_claim(claim_id: uuid.UUID, session: Session = Depends(get_session)):
+def verify_claim(claim_id: uuid.UUID, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Step 2: "I published it, check now." We fetch the file and compare it with the token."""
     claim = session.get(TargetClaim, claim_id)
-    if claim is None:
+    if claim is None or claim.user_id != user.id:  # someone else's claim: same 404, as with scans
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Claim not found")
     if claim.verified_at is not None:
         return claim_out(claim)  # already verified: nothing to fetch again
+
+    # Each check makes OUR server send a request somewhere, so nobody may use us to send many.
+    wait = wait_if_over(session, f"verify-user:{user.id}", get_settings().verifies_per_user_per_hour, 3600)
+    if wait:
+        raise too_many(wait, "Too many verification checks. Try again later.")
 
     url = proof_url(claim.origin)
     try:

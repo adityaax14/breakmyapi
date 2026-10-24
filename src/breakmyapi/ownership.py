@@ -8,6 +8,7 @@ The same idea Google Search Console and Let's Encrypt use:
 """
 
 import secrets
+import uuid
 
 import httpx
 from sqlalchemy import select
@@ -61,11 +62,15 @@ def proof_matches(found: str | None, token: str) -> bool:
     return found is not None and secrets.compare_digest(found.encode(), token.encode())
 
 
-def is_verified(session: Session, origin: str) -> bool:
-    """Has anyone proved ownership of this origin?"""
+def is_verified(session: Session, origin: str, user_id: uuid.UUID) -> bool:
+    """Has THIS user proved ownership of this origin? (Someone else's proof does not count.)"""
     claim_id = session.scalar(
         select(TargetClaim.id)
-        .where(TargetClaim.origin == origin, TargetClaim.verified_at.is_not(None))
+        .where(
+            TargetClaim.origin == origin,
+            TargetClaim.user_id == user_id,
+            TargetClaim.verified_at.is_not(None),
+        )
         .limit(1)
     )
     return claim_id is not None

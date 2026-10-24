@@ -49,6 +49,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://breakmyapi:breakmyapi@postgres:5432/breakmyapi
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      - hf-cache:/root/.cache/huggingface   # the agent's retrieve step uses the embedding model too
     depends_on:
       postgres:
         condition: service_healthy

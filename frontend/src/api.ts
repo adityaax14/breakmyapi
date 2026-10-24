@@ -63,13 +63,51 @@ function describeDetail(detail: unknown): string | null {
   return null;
 }
 
+// ---- the login token ----
+// Kept in localStorage, so a page refresh keeps you logged in. Storage can be blocked
+// (private windows), so every access is wrapped in try/catch.
+
+const TOKEN_KEY = "breakmyapi-token";
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage blocked: you stay logged in only until the page is closed */
+  }
+}
+
+// The App listens here, so ANY 401 (an expired session) sends you back to the login screen.
+const loggedOutListeners = new Set<() => void>();
+export const onLoggedOut = (listener: () => void) => {
+  loggedOutListeners.add(listener);
+  return () => {
+    loggedOutListeners.delete(listener);
+  };
+};
+
+// Every request carries "Authorization: Bearer <token>" when we have one.
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const started = performance.now();
   let res: Response;
   try {
     res = await fetch(API + path, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: { ...authHeaders(), ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (err) {
@@ -80,11 +118,50 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   record({ method, path, status: res.status, ms: Math.round(performance.now() - started) });
 
   const data = await res.json().catch(() => null);
+  if (res.status === 401 && getToken()) {
+    // We sent a token and the server refused it: the session expired or was ended.
+    setToken(null);
+    loggedOutListeners.forEach((l) => l());
+  }
   if (!res.ok) {
     throw new ApiError(describeDetail(data?.detail) ?? `Request failed with status ${res.status}`);
   }
   return data as T;
 }
+
+// ---- accounts ----
+
+export interface User {
+  id: string;
+  email: string;
+}
+
+interface LoginResult {
+  token: string;
+  user: User;
+}
+
+export async function signUp(email: string, password: string): Promise<User> {
+  const result = await request<LoginResult>("POST", "/auth/signup", { email, password });
+  setToken(result.token);
+  return result.user;
+}
+
+export async function logIn(email: string, password: string): Promise<User> {
+  const result = await request<LoginResult>("POST", "/auth/login", { email, password });
+  setToken(result.token);
+  return result.user;
+}
+
+export async function logOut() {
+  try {
+    await request<void>("POST", "/auth/logout");
+  } finally {
+    setToken(null); // forget the token even if the server could not be reached
+  }
+}
+
+export const getMe = () => request<User>("GET", "/auth/me");
 
 export const createScan = (body: ScanCreate) => request<Scan>("POST", "/scans", body);
 export const getScan = (id: string) => request<Scan>("GET", `/scans/${id}`);
@@ -147,6 +224,9 @@ export interface ScanEvent {
 
 // Opens ONE connection; the server pushes a message every time the scan writes a diary line.
 // Returns a function that closes the connection.
+//
+// Why fetch and not the browser's EventSource? EventSource cannot send headers, so it could
+// not send our login token. fetch can, and it lets us read the reply piece by piece as it arrives.
 export function streamScan(
   id: string,
   onEvent: (event: ScanEvent) => void,
@@ -155,16 +235,45 @@ export function streamScan(
 ): () => void {
   const path = `/scans/${id}/stream`;
   record({ method: "GET", path, status: "stream", ms: 0 });
+  const controller = new AbortController(); // lets us hang up the connection later
 
-  const source = new EventSource(API + path);
-  source.onmessage = (message) => onEvent(JSON.parse(message.data));
-  source.addEventListener("done", (message) => {
-    source.close(); // finished: close it, or the browser would reconnect by itself
-    onDone(JSON.parse((message as MessageEvent).data).status);
-  });
-  source.onerror = () => {
-    source.close();
-    onError();
-  };
-  return () => source.close();
+  (async () => {
+    try {
+      const res = await fetch(API + path, { headers: authHeaders(), signal: controller.signal });
+      if (!res.ok || !res.body) throw new Error(`stream failed with status ${res.status}`);
+
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read(); // waits until the server sends more
+        if (done) return;
+        buffer += value;
+
+        // SSE messages end with a blank line ("\n\n"). Handle each complete one; keep the rest.
+        let end;
+        while ((end = buffer.indexOf("\n\n")) !== -1) {
+          const message = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+
+          // A message looks like:  "event: done\ndata: {...}"  ("event:" is optional)
+          let event = "message";
+          let data = "";
+          for (const line of message.split("\n")) {
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            if (line.startsWith("data:")) data += line.slice(5).trim();
+          }
+          if (event === "done") {
+            controller.abort(); // finished: hang up
+            onDone(JSON.parse(data).status);
+            return;
+          }
+          onEvent(JSON.parse(data));
+        }
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) onError(); // hanging up ourselves is not an error
+    }
+  })();
+
+  return () => controller.abort();
 }

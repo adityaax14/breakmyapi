@@ -19,6 +19,8 @@ class Scan(Base):
     status: Mapped[str] = mapped_column(String(20), default="queued")
     # JSONB in Postgres; plain JSON in SQLite, which the tests use (CI has no Postgres).
     spec: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    # Who started it. Empty only for old scans made before accounts existed (nobody can see those).
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -33,6 +35,27 @@ class ScanEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(320), unique=True)  # unique: one account per email
+    # NEVER the password itself: a one-way Argon2 hash of it (see auth.py).
+    password_hash: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuthSession(Base):
+    """One logged-in device. The browser holds a random token; we keep only its SHA-256 hash."""
+
+    __tablename__ = "auth_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TargetClaim(Base):
     """Someone says "I own this API". They prove it by putting `token` on their server.
 
@@ -44,6 +67,8 @@ class TargetClaim(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     origin: Mapped[str] = mapped_column(String(300), index=True)  # e.g. "https://api.example.com:443"
     token: Mapped[str] = mapped_column(String(100))  # the random secret they must publish
+    # Whose claim it is. A verified site may be scanned only by the user who verified it.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

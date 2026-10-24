@@ -96,14 +96,13 @@ def test_fetch_proof_refuses_internal_addresses_before_sending_anything():
         fetch_proof("http://169.254.169.254/latest/meta-data/")
 
 
-def test_verify_explains_a_blocked_address(db, monkeypatch):
+def test_verify_explains_a_blocked_address(priya, monkeypatch):
     def blocked(url):
         raise BlockedAddress("internal.attacker.com points to a private or internal address (10.0.0.5)")
 
     monkeypatch.setattr(main, "fetch_proof", blocked)
-    client = TestClient(main.app)
-    claim = client.post("/targets", json={"target_url": "https://internal.attacker.com"}).json()
+    claim = priya.post("/targets", json={"target_url": "https://internal.attacker.com"}).json()
 
-    response = client.post(f"/targets/{claim['id']}/verify")
+    response = priya.post(f"/targets/{claim['id']}/verify")
     assert response.status_code == 400
     assert response.json()["detail"].startswith("Refused:")
