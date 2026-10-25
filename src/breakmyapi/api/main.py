@@ -3,6 +3,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from openai import APIError
 from pydantic import BaseModel, ConfigDict, Field
 from redis import RedisError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only
 
@@ -114,9 +115,55 @@ def create_scan(
     return scan
 
 
-@app.get("/scans/{scan_id}", response_model=ScanOut)
+class ScanDetail(ScanOut):
+    """One scan with everything the progress page needs, including a pending approval question."""
+
+    approval_request: dict | None  # {"tests": [...]} while status is "waiting_approval"
+    approval: str | None           # the user's answer, once given
+
+
+@app.get("/scans/{scan_id}", response_model=ScanDetail)
 def get_scan(scan_id: uuid.UUID, user: User = Depends(current_user), session: Session = Depends(get_session)):
     return own_scan(session, scan_id, user)
+
+
+class ApprovalIn(BaseModel):
+    decision: Literal["approve", "reject"]  # anything else is refused with 422 before our code runs
+
+
+@app.post("/scans/{scan_id}/approval", response_model=ScanDetail)
+def answer_approval(
+    scan_id: uuid.UUID, body: ApprovalIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+):
+    """The user's answer to the agent's question. Saves it, and puts the scan back in the queue to resume."""
+    scan = own_scan(session, scan_id, user)
+
+    # One statement checks AND changes (as in Lesson 34): only a scan that is waiting can be answered,
+    # so answering twice, or answering a cancelled scan, can never resume it twice.
+    result = session.execute(
+        update(Scan)
+        .where(Scan.id == scan_id, Scan.status == "waiting_approval")
+        .values(status="queued", approval=body.decision)
+    )
+    if result.rowcount == 0:
+        session.rollback()
+        session.refresh(scan)
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This scan is not waiting for approval (it is {scan.status})")
+    session.add(ScanEvent(scan_id=scan_id, message=f"you answered: {body.decision}"))
+    session.commit()
+
+    try:
+        enqueue_scan(scan_id)  # any worker will pick it up and resume the agent with the answer
+    except RedisError as e:
+        # The queue is down: put it back to "waiting" so the user can simply answer again later.
+        session.execute(
+            update(Scan).where(Scan.id == scan_id).values(status="waiting_approval", approval=None)
+        )
+        session.commit()
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The job queue is unavailable. Try again shortly.") from e
+
+    session.refresh(scan)
+    return scan
 
 
 MAX_PAGE_SIZE = 50  # nobody can ask for more than this many scans at once (check 10, applied to ourselves)
@@ -159,7 +206,7 @@ def cancel_scan(scan_id: uuid.UUID, user: User = Depends(current_user), session:
     """Stop a scan that is waiting or running. The worker notices before its next step."""
     scan = own_scan(session, scan_id, user)
 
-    if change_status(session, scan_id, {"queued", "running"}, "cancelled"):
+    if change_status(session, scan_id, {"queued", "running", "waiting_approval"}, "cancelled"):
         session.add(ScanEvent(scan_id=scan_id, message="scan cancelled"))
         session.commit()
         session.refresh(scan)

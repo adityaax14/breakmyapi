@@ -7,6 +7,8 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "border-rose-400/40 bg-rose-500/10 text-rose-200",
   running: "border-indigo-400/40 bg-indigo-500/10 text-indigo-200",
   queued: "border-slate-600 bg-slate-800/60 text-slate-300",
+  waiting_approval: "border-amber-400/40 bg-amber-500/10 text-amber-200",
+  cancelled: "border-slate-600 bg-slate-800/60 text-slate-400",
 };
 
 export default function History({ onOpen }: { onOpen: (scan: Scan) => void }) {

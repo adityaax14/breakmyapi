@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { cancelScan, isFinished, streamScan, type Scan, type ScanStatus } from "../api";
+import ApprovalCard from "./ApprovalCard";
 
 const STEPS: { key: ScanStatus; label: string; hint: string }[] = [
   { key: "queued", label: "Queued", hint: "Saved in the database, waiting for the runner" },
@@ -10,6 +11,7 @@ const STEPS: { key: ScanStatus; label: string; hint: string }[] = [
 
 function stepIndex(status: ScanStatus) {
   if (status === "failed" || status === "cancelled") return 2;
+  if (status === "waiting_approval") return 1; // paused in the middle of "Running"
   return STEPS.findIndex((s) => s.key === status);
 }
 
@@ -43,11 +45,11 @@ function useScan(initial: Scan) {
     }
   }
 
-  return { scan, log, error, cancel };
+  return { scan, setScan, log, error, cancel };
 }
 
 export default function ScanProgress({ initial, onReset }: { initial: Scan; onReset: () => void }) {
-  const { scan, log, error, cancel } = useScan(initial);
+  const { scan, setScan, log, error, cancel } = useScan(initial);
   const [cancelling, setCancelling] = useState(false);
   const current = stepIndex(scan.status);
   const failed = scan.status === "failed" || scan.status === "cancelled";
@@ -94,6 +96,10 @@ export default function ScanProgress({ initial, onReset }: { initial: Scan; onRe
           );
         })}
       </ol>
+
+      {scan.status === "waiting_approval" && (
+        <ApprovalCard scanId={scan.id} onAnswered={(updated) => setScan(updated)} />
+      )}
 
       {log.length > 0 && (
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">

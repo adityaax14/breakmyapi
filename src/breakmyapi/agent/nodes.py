@@ -6,6 +6,8 @@ Nodes never touch our database or the diary; the scan runner does that between n
 
 from dataclasses import asdict
 
+from langgraph.types import interrupt
+
 from breakmyapi.agent.state import PlannedTest, ScanState, Source
 from breakmyapi.checks import CHECKS, FIRST_FOUR
 from breakmyapi.rag import search as library
@@ -72,6 +74,42 @@ def plan(state: ScanState) -> dict:
     return {"plan": tests}
 
 
+# ---- approve: ask the human before any test that could change data ----
+
+WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")  # requests that can change data on the target
+
+
+def approve(state: ScanState) -> dict:
+    """Pause the whole graph and ask the user, if the plan contains tests that could change data.
+
+    interrupt(question) STOPS the graph right here. LangGraph saves a checkpoint, and the run
+    ends for now. Later, someone resumes the graph with Command(resume=answer): LangGraph then
+    runs this node AGAIN FROM ITS FIRST LINE, and this time interrupt(...) returns the answer
+    instead of stopping. That re-run is why this node must have NO side effects before the
+    interrupt: anything above it would happen twice.
+    """
+    risky = [t for t in state["plan"] if t["method"] in WRITE_METHODS]
+    if not risky:
+        return {"approval": "not_needed"}  # only read-only tests: no need to bother the user
+
+    # The value we pass is what the user will be shown: the list of risky tests.
+    answer = interrupt({"tests": risky})
+
+    if answer == "approve":
+        return {"approval": "approved"}
+    # Rejected (or any unexpected answer: fail safe): drop the risky tests, keep the read-only ones,
+    # and record the skipped ones so the report can say what was NOT tested and why.
+    skipped = [{**t, "outcome": "skipped", "note": "skipped: you chose not to run tests that change data"}
+               for t in risky]
+    safe = [t for t in state["plan"] if t["method"] not in WRITE_METHODS]
+    return {"approval": "rejected", "plan": safe, "results": state["results"] + skipped}
+
+
+def after_approve(state: ScanState) -> str:
+    """After approve: tests left -> execute; nothing left (e.g. all were rejected) -> report."""
+    return "execute" if state["plan"] else "report"
+
+
 # ---- 4. execute and 5. judge: one planned test per run (placeholders for now) ----
 
 
@@ -100,8 +138,8 @@ def after_judge(state: ScanState) -> str:
 
 
 def after_plan(state: ScanState) -> str:
-    """An empty plan (nothing to test) goes straight to the report."""
-    return "execute" if state["plan"] else "report"
+    """An empty plan (nothing to test) goes straight to the report; otherwise ask for approval."""
+    return "approve" if state["plan"] else "report"
 
 
 # ---- 6. report ----

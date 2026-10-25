@@ -1,14 +1,18 @@
-"""Watch the real agent graph work, one station at a time.
+"""Watch the real agent graph work, one station at a time, including the approval pause.
 
 It runs the REAL graph from src/breakmyapi/agent/ on the sample spec, and prints what each
-node changed. The library search is replaced by a pretend one, so no database is needed.
-Run:  uv run python examples/agent_walkthrough.py
+node changed. The library search is replaced by a pretend one, and the checkpoints are kept
+in memory, so no database is needed.
+Run:  uv run python examples/agent_walkthrough.py            (answers "approve" at the pause)
+      uv run python examples/agent_walkthrough.py reject     (answers "reject")
 """
 
 import json
 import sys
 
 import yaml
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from breakmyapi.agent.graph import build_graph
 from breakmyapi.agent.state import initial_state
@@ -26,10 +30,17 @@ def pretend_search(question, k=3, check=None, **kwargs):
 library.search = pretend_search  # the retrieve node calls library.search, so it now gets ours
 
 spec = yaml.safe_load(open("docs/sample-spec.yaml", encoding="utf-8"))
-graph = build_graph()
+answer = sys.argv[1] if len(sys.argv) > 1 else "approve"
+
+# A pause needs somewhere to save the paused run: here, memory. (The worker uses Postgres.)
+graph = build_graph(InMemorySaver())
+config = {"configurable": {"thread_id": "walkthrough"}}
 
 step = 0
-for update in graph.stream(initial_state(spec), stream_mode="updates"):
+
+
+def show(update):
+    global step
     for node, changes in update.items():
         step += 1
         print(f"\n===== step {step}: {node} =====")
@@ -44,3 +55,21 @@ for update in graph.stream(initial_state(spec), stream_mode="updates"):
                 print(f"{field}: ({len(value)} items, first 2 shown)\n{shown}")
                 continue
             print(f"{field}: {json.dumps(value, indent=2)}")
+
+
+start = initial_state(spec)
+while True:
+    paused = False
+    for update in graph.stream(start, config, stream_mode="updates"):
+        if "__interrupt__" in update:
+            question = update["__interrupt__"][0].value
+            print("\n⏸  ===== PAUSED: the agent asks before these tests =====")
+            for t in question["tests"]:
+                print(f"   {t['method']:6} {t['path']:20} {t['check']}")
+            print(f"   (the run is saved; we answer: {answer!r})")
+            paused = True
+        else:
+            show(update)
+    if not paused:
+        break
+    start = Command(resume=answer)  # resume the paused run with our answer

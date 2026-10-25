@@ -18,6 +18,8 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_scans_user_id ON scans (user_id)",
     "ALTER TABLE target_claims ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE",
     "CREATE INDEX IF NOT EXISTS ix_target_claims_user_id ON target_claims (user_id)",
+    "ALTER TABLE scans ADD COLUMN IF NOT EXISTS approval_request JSONB",
+    "ALTER TABLE scans ADD COLUMN IF NOT EXISTS approval VARCHAR(20)",
 ]
 
 

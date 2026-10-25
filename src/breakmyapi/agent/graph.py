@@ -1,11 +1,14 @@
 """The agent's GRAPH: the nodes, connected by edges.
 
-    START -> read -> retrieve -> plan -> execute -> judge -> report -> END
-                                    |       ^          |
-                                    |       +----------+   (more tests waiting: loop)
-                                    +-> report             (nothing to test)
+    START -> read -> retrieve -> plan -> approve -> execute -> judge -> report -> END
+                                   |        |          ^          |
+                                   |        |          +----------+   (more tests waiting: loop)
+                                   |        +-> report                (everything was rejected)
+                                   +-> report                         (nothing to test)
 
-Still to come: an `approve` pause before execute, and judge sending a finding back to plan.
+approve may PAUSE the graph (interrupt) until the user answers. That needs a checkpointer,
+because the paused run must be saved somewhere to be resumed later.
+Still to come: judge sending a finding back to plan for a deeper look.
 """
 
 from langgraph.graph import END, START, StateGraph
@@ -14,7 +17,7 @@ from breakmyapi.agent import nodes
 from breakmyapi.agent.state import ScanState
 
 # The node names; each is also the name of its function in nodes.py.
-STEP_NAMES = ["read", "retrieve", "plan", "execute", "judge", "report"]
+STEP_NAMES = ["read", "retrieve", "plan", "approve", "execute", "judge", "report"]
 
 
 def build_graph(checkpointer=None):
@@ -25,7 +28,8 @@ def build_graph(checkpointer=None):
     builder.add_edge(START, "read")
     builder.add_edge("read", "retrieve")
     builder.add_edge("retrieve", "plan")
-    builder.add_conditional_edges("plan", nodes.after_plan, ["execute", "report"])
+    builder.add_conditional_edges("plan", nodes.after_plan, ["approve", "report"])
+    builder.add_conditional_edges("approve", nodes.after_approve, ["execute", "report"])
     builder.add_edge("execute", "judge")
     builder.add_conditional_edges("judge", nodes.after_judge, ["execute", "report"])
     builder.add_edge("report", END)

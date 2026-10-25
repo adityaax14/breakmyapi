@@ -34,9 +34,11 @@ class ScanState(TypedDict):
     endpoints: list[dict]               # filled by read
     guidance: dict[str, list[Source]]   # filled by retrieve: check id -> library chunks about it
     plan: list[PlannedTest]             # filled by plan; execute takes them off one by one
+    approval: str                       # filled by approve: "not_needed", "approved" or "rejected"
     results: list[TestResult]           # filled by execute/judge, one per finished test
     report: str                         # filled by report
 
 
 def initial_state(spec: dict) -> ScanState:
-    return {"spec": spec, "endpoints": [], "guidance": {}, "plan": [], "results": [], "report": ""}
+    return {"spec": spec, "endpoints": [], "guidance": {}, "plan": [], "approval": "",
+            "results": [], "report": ""}

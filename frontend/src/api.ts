@@ -4,7 +4,7 @@
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
-export type ScanStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type ScanStatus = "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
 
 export interface Scan {
   id: string;
@@ -164,8 +164,27 @@ export async function logOut() {
 export const getMe = () => request<User>("GET", "/auth/me");
 
 export const createScan = (body: ScanCreate) => request<Scan>("POST", "/scans", body);
-export const getScan = (id: string) => request<Scan>("GET", `/scans/${id}`);
 export const cancelScan = (id: string) => request<Scan>("POST", `/scans/${id}/cancel`);
+
+// ---- approval: the agent asks before running tests that could change data ----
+
+export interface PlannedTest {
+  key: string;
+  check: string;
+  method: string;
+  path: string;
+}
+
+// GET /scans/{id} returns a bit more than a list row: the pending question, if any.
+export interface ScanDetail extends Scan {
+  approval_request: { tests: PlannedTest[] } | null;
+  approval: "approve" | "reject" | null;
+}
+
+export const getScan = (id: string) => request<ScanDetail>("GET", `/scans/${id}`);
+
+export const answerApproval = (id: string, decision: "approve" | "reject") =>
+  request<ScanDetail>("POST", `/scans/${id}/approval`, { decision });
 
 export interface ScanSummary extends Scan {
   created_at: string;

@@ -16,7 +16,12 @@ class Scan(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     target_url: Mapped[str] = mapped_column(String(2048))
     # queued -> running -> completed | failed | cancelled
+    #                  \-> waiting_approval -> (user answers) -> queued -> running -> ...
     status: Mapped[str] = mapped_column(String(20), default="queued")
+    # While waiting: the tests the agent wants permission for (shown in the UI). Afterwards: kept for the record.
+    approval_request: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    # The user's answer: "approve" or "reject" (empty until they answer).
+    approval: Mapped[str | None] = mapped_column(String(20))
     # JSONB in Postgres; plain JSON in SQLite, which the tests use (CI has no Postgres).
     spec: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
     # Who started it. Empty only for old scans made before accounts existed (nobody can see those).

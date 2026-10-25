@@ -5,15 +5,17 @@ The library search is faked in conftest.py, so no embedding model or pgvector is
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
+from sqlalchemy import select
 
+import breakmyapi.api.main as main
 from breakmyapi.agent import nodes
 from breakmyapi.agent.graph import build_graph
 from breakmyapi.agent.state import initial_state
 from breakmyapi.models import Scan, ScanEvent
 from breakmyapi.scan_runner import run_scan
-from sqlalchemy import select
 
-# 3 endpoints: GET /notes, GET /notes/{note_id}, PATCH /notes/{note_id}; all need a login.
+# 4 endpoints: GET /notes, GET + PATCH /notes/{note_id} (need a login), and POST /login (no login).
 SPEC = {
     "security": [{"bearerAuth": []}],
     "paths": {
@@ -52,12 +54,15 @@ def test_plan_only_plans_checks_that_have_library_guidance():
 # ---- a whole run ----
 
 
-def run_graph(spec, checkpointer=None, config=None):
-    return build_graph(checkpointer).invoke(initial_state(spec), config)
+GET_ONLY = {"security": [{"bearerAuth": []}], "paths": {"/notes": {"get": {}}, "/notes/{note_id}": {"get": {}}}}
 
 
 def test_a_full_run_plans_and_reports_without_sending_anything(db):
-    final = run_graph(SPEC)
+    graph, config = build_graph(InMemorySaver()), {"configurable": {"thread_id": "t"}}
+    paused = graph.invoke(initial_state(SPEC), config)
+    assert "__interrupt__" in paused  # it stopped to ask about the PATCH and POST tests
+    final = graph.invoke(Command(resume="approve"), config)  # the user says yes
+    assert final["approval"] == "approved"
     assert len(final["endpoints"]) == 4
     # GET /notes: missing_auth, excessive_data | GET /notes/{id}: +object_level_access
     # PATCH /notes/{id}: object_level_access, missing_auth, mass_assignment | POST /login: mass_assignment
@@ -91,8 +96,9 @@ def test_a_crashed_run_resumes_where_it_stopped(db, monkeypatch):
     saver, config = InMemorySaver(), {"configurable": {"thread_id": "scan-1"}}
     graph = build_graph(saver)
 
+    graph.invoke(initial_state(SPEC), config)  # pauses at approve
     with pytest.raises(RuntimeError):
-        graph.invoke(initial_state(SPEC), config)
+        graph.invoke(Command(resume="approve"), config)  # approved, then crashes during test 4
     saved = graph.get_state(config)
     assert saved.next == ("execute",)          # it knows exactly where it stopped
     assert len(saved.values["results"]) == 3   # with the 3 tests that finished
@@ -119,14 +125,25 @@ def add_scan(db, user_id, spec):
         return scan.id
 
 
-def test_the_scan_diary_shows_each_step(db, priya):
+def test_the_scan_diary_shows_each_step(db, priya, monkeypatch):
+    monkeypatch.setattr(main, "enqueue_scan", lambda scan_id: None)  # tests have no Redis
     scan_id = add_scan(db, priya.user_id, SPEC)
-    run_scan(scan_id)
+
+    run_scan(scan_id)  # first part: runs until the question
     lines = diary(db, scan_id)
-    assert lines[0] == "scan started"
-    assert lines[1] == "read the spec: 4 endpoints"
-    assert lines[2] == "found 12 OWASP library sections for 4 check types"
-    assert lines[3] == "planned 9 tests"
+    assert lines[:5] == [
+        "scan started",
+        "read the spec: 4 endpoints",
+        "found 12 OWASP library sections for 4 check types",
+        "planned 9 tests",
+        "waiting for your approval: 4 tests could change data on your API",
+    ]
+
+    priya.post(f"/scans/{scan_id}/approval", json={"decision": "approve"})
+    run_scan(scan_id)  # second part: a worker resumes with the answer
+    lines = diary(db, scan_id)
+    assert "continuing with your answer: approve" in lines
+    assert "approved: tests that change data will run" in lines
     assert "missing_auth on GET /notes: this check is not built yet" in lines
     assert lines[-1] == "scan completed"
 
@@ -149,7 +166,7 @@ def test_a_loop_that_never_ends_is_stopped(db, priya, monkeypatch):
         return {}
 
     monkeypatch.setattr(nodes, "execute", stuck_execute)
-    scan_id = add_scan(db, priya.user_id, SPEC)
+    scan_id = add_scan(db, priya.user_id, GET_ONLY)  # read-only tests: no approval pause
     run_scan(scan_id)
     assert diary(db, scan_id)[-1] == "scan failed"
     assert calls["n"] < 120  # stopped by OUR limit (210 steps), not LangGraph's default (10,007)

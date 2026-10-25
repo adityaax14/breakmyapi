@@ -3,6 +3,7 @@ import uuid
 from contextlib import contextmanager
 
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.types import Command
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
@@ -78,6 +79,13 @@ def describe(node: str, changes: dict) -> str | None:
         return f"found {total} OWASP library sections for {len(found)} check types"
     if node == "plan":
         return f"planned {len(changes['plan'])} tests"
+    if node == "approve":
+        if changes["approval"] == "approved":
+            return "approved: tests that change data will run"
+        if changes["approval"] == "rejected":
+            skipped = sum(r["outcome"] == "skipped" for r in changes["results"])
+            return f"skipped {skipped} tests that change data, as you chose"
+        return "no tests change data: no approval needed"
     if node == "execute" and "results" in changes:
         r = changes["results"][-1]
         return f"{r['check']} on {r['method']} {r['path']}: {r['note']}"
@@ -86,8 +94,12 @@ def describe(node: str, changes: dict) -> str | None:
     return None
 
 
-def run_agent(session: Session, scan: Scan) -> None:
-    """Run (or resume) the agent graph for this scan, writing the diary and checking Cancel between nodes."""
+def run_agent(session: Session, scan: Scan) -> dict | None:
+    """Run (or resume) the agent graph for this scan, writing the diary and checking Cancel between nodes.
+
+    Returns None when the graph finished, or the QUESTION when it paused to ask the user
+    (an interrupt in the approve node), e.g. {"tests": [...the tests that change data...]}.
+    """
     # thread_id = which saved run this is. Using the scan id means a re-run finds its own checkpoint.
     # recursion_limit = the most steps one run may take. LangGraph's default is 10,007; ours is set
     # to what a real scan can need (each test takes 2 steps, execute + judge, plus a few for read,
@@ -97,14 +109,25 @@ def run_agent(session: Session, scan: Scan) -> None:
     with checkpointer() as saver:
         graph = build_graph(saver)
         saved = graph.get_state(config)
-        if saved.next:  # a checkpoint exists, with steps still to do: a worker crashed mid-run
+        if saved.interrupts:
+            # The run is paused at a question. The user's answer is on the scan row (the API put it there).
+            if scan.approval is None:
+                return saved.interrupts[0].value  # no answer yet: still waiting
+            log(session, scan, f"continuing with your answer: {scan.approval}")
+            start = Command(resume=scan.approval)  # "resume the paused run; interrupt() returns this"
+        elif saved.next:  # a checkpoint exists, with steps still to do: a worker crashed mid-run
             log(session, scan, f"resuming from the last saved step (next: {', '.join(saved.next)})")
             start = None  # None = "continue the saved run" instead of "start a new one"
         else:
             start = initial_state(scan.spec)
 
+        question = None
         # stream(..., "updates") runs the graph and hands us {node name: what it changed} after each node.
         for update in graph.stream(start, config, stream_mode="updates"):
+            if "__interrupt__" in update:
+                # Not a node: LangGraph telling us the graph PAUSED. The stream ends right after this.
+                question = update["__interrupt__"][0].value
+                continue
             for node, changes in update.items():
                 if node == "plan" and len(changes["plan"]) > MAX_TESTS:
                     raise ValueError(f"the spec needs {len(changes['plan'])} tests; the limit is {MAX_TESTS}")
@@ -112,6 +135,7 @@ def run_agent(session: Session, scan: Scan) -> None:
                 if line:
                     log(session, scan, line)
             stop_if_cancelled(session, scan)  # between nodes: Cancel takes effect at the next step
+        return question
 
 
 def run_scan(scan_id: uuid.UUID) -> None:
@@ -121,14 +145,26 @@ def run_scan(scan_id: uuid.UUID) -> None:
         if scan is None or not change_status(session, scan_id, {"queued"}, "running"):
             session.commit()
             return
-        log(session, scan, "scan started")
+        # A scan that already has an answer is coming back after the approval pause.
+        log(session, scan, "scan resumed" if scan.approval else "scan started")
 
         try:
             # Check again here, not only in the API: the allowlist may have changed since the scan
             # was queued, and a scan could reach the queue some other way. (Defense in depth.)
             check_target(scan.target_url, session, scan.user_id)
 
-            run_agent(session, scan)
+            question = run_agent(session, scan)
+            if question is not None:
+                # Paused for the user. Save the question for the UI, and free this worker: we do NOT
+                # sit here waiting (the answer could take seconds or days). The API re-queues the
+                # scan when the user answers, and any worker then resumes it from the checkpoint.
+                scan.approval_request = question
+                scan.approval = None
+                if change_status(session, scan_id, {"running"}, "waiting_approval"):
+                    n = len(question["tests"])
+                    log(session, scan, f"waiting for your approval: {n} tests could change data on your API")
+                session.commit()
+                return
 
             # "completed" only if nobody cancelled it during the last step.
             if change_status(session, scan_id, {"running"}, "completed"):
