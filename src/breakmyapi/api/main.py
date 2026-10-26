@@ -59,6 +59,12 @@ app.add_middleware(
 class ScanCreate(BaseModel):
     target_url: str
     spec: str
+    # Which framework the fix advice should be written for (fixed choices, so nothing odd reaches the prompt).
+    framework: Literal["generic", "fastapi", "django", "express", "spring"] = "generic"
+    # Optional: a bearer token for a THROWAWAY test account on your target. Only used by checks
+    # that need to be logged in. Log in as that account yourself and paste its token here; we
+    # never attempt to log in on your behalf or guess credentials.
+    test_token: str | None = Field(default=None, max_length=2000)
 
 
 class ScanOut(BaseModel):
@@ -101,7 +107,8 @@ def create_scan(
     if not parse_endpoints(spec):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Spec defines no endpoints")
 
-    scan = Scan(target_url=body.target_url, spec=spec, user_id=user.id)
+    scan = Scan(target_url=body.target_url, spec=spec, user_id=user.id, framework=body.framework,
+                test_token=body.test_token)
     session.add(scan)
     session.commit()  # save first, so the worker can always find the scan it is given
 
@@ -120,6 +127,8 @@ class ScanDetail(ScanOut):
 
     approval_request: dict | None  # {"tests": [...]} while status is "waiting_approval"
     approval: str | None           # the user's answer, once given
+    framework: str                 # fixes in the report are written for this framework
+    report: dict | None            # {"summary": ..., "sections": [...]} once the scan has completed
 
 
 @app.get("/scans/{scan_id}", response_model=ScanDetail)

@@ -88,9 +88,11 @@ def describe(node: str, changes: dict) -> str | None:
         return "no tests change data: no approval needed"
     if node == "execute" and "results" in changes:
         r = changes["results"][-1]
-        return f"{r['check']} on {r['method']} {r['path']}: {r['note']}"
+        mark = {"pass": "PASS", "fail": "FAIL", "needs_review": "REVIEW", "error": "ERROR"}.get(r["outcome"], "")
+        prefix = f"[{mark}] " if mark else ""
+        return f"{prefix}{r['check']} on {r['method']} {r['path']}: {r['note']}"
     if node == "report":
-        return changes["report"]
+        return f"report written: {changes['report']}"
     return None
 
 
@@ -119,7 +121,7 @@ def run_agent(session: Session, scan: Scan) -> dict | None:
             log(session, scan, f"resuming from the last saved step (next: {', '.join(saved.next)})")
             start = None  # None = "continue the saved run" instead of "start a new one"
         else:
-            start = initial_state(scan.spec)
+            start = initial_state(scan.spec, scan.framework, scan.target_url, scan.test_token)
 
         question = None
         # stream(..., "updates") runs the graph and hands us {node name: what it changed} after each node.
@@ -135,6 +137,13 @@ def run_agent(session: Session, scan: Scan) -> dict | None:
                 if line:
                     log(session, scan, line)
             stop_if_cancelled(session, scan)  # between nodes: Cancel takes effect at the next step
+
+        if question is None:
+            # Finished: copy the report out of the agent's memory (checkpoints) into the scan row,
+            # where the API and UI read it. Checkpoints are the agent's working memory; the report
+            # is the user's result and must outlive them.
+            final = graph.get_state(config).values
+            scan.report = {"summary": final["report"], "sections": final["sections"]}
         return question
 
 

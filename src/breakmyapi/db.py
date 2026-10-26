@@ -20,6 +20,9 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_target_claims_user_id ON target_claims (user_id)",
     "ALTER TABLE scans ADD COLUMN IF NOT EXISTS approval_request JSONB",
     "ALTER TABLE scans ADD COLUMN IF NOT EXISTS approval VARCHAR(20)",
+    "ALTER TABLE scans ADD COLUMN IF NOT EXISTS framework VARCHAR(20) NOT NULL DEFAULT 'generic'",
+    "ALTER TABLE scans ADD COLUMN IF NOT EXISTS report JSONB",
+    "ALTER TABLE scans ADD COLUMN IF NOT EXISTS test_token VARCHAR(2000)",
 ]
 
 

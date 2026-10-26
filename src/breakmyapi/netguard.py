@@ -75,7 +75,7 @@ def pin(url: str) -> tuple[str, str, str]:
 
 
 @contextmanager
-def guarded_stream(method: str, url: str, *, timeout: float, headers: dict | None = None):
+def guarded_stream(method: str, url: str, *, timeout: float, headers: dict | None = None, json=None):
     """Like httpx.stream(...), but only to public addresses, pinned to the checked IP, and never
     following redirects (a redirect would go to a new address that we have not checked).
 
@@ -87,6 +87,7 @@ def guarded_stream(method: str, url: str, *, timeout: float, headers: dict | Non
             method,
             pinned_url,
             headers={**(headers or {}), "Host": host_header},
+            json=json,
             extensions={"sni_hostname": tls_name},  # HTTPS: ask for, and check, the real name's certificate
         )
         response = client.send(request, stream=True)

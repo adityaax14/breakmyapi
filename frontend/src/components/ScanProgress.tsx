@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { cancelScan, isFinished, streamScan, type Scan, type ScanStatus } from "../api";
 import ApprovalCard from "./ApprovalCard";
+import ReportView from "./ReportView";
 
 const STEPS: { key: ScanStatus; label: string; hint: string }[] = [
   { key: "queued", label: "Queued", hint: "Saved in the database, waiting for the runner" },
@@ -118,9 +119,15 @@ export default function ScanProgress({ initial, onReset }: { initial: Scan; onRe
         </div>
       )}
 
-      <div className="rounded-xl border border-dashed border-slate-700 px-4 py-5 text-center text-sm text-slate-500">
-        Findings will appear here once the agent and the checks are built.
-      </div>
+      {scan.status === "completed" ? (
+        <ReportView scanId={scan.id} />
+      ) : (
+        !done && (
+          <div className="rounded-xl border border-dashed border-slate-700 px-4 py-5 text-center text-sm text-slate-500">
+            The report appears here when the scan completes.
+          </div>
+        )
+      )}
 
       {!done && (
         <button

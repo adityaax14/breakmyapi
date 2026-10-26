@@ -1,0 +1,112 @@
+openapi: 3.0.3
+info:
+  title: Shop API (BreakMyAPI test sample)
+  version: 1.0.0
+  description: >
+    A small online shop, written to exercise every part of the BreakMyAPI agent:
+    public and login-required endpoints, IDs in paths, request bodies, a DELETE,
+    and an admin route.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Order:
+      type: object
+      properties:
+        id: { type: integer }
+        product_id: { type: integer }
+        quantity: { type: integer }
+        status: { type: string }
+    ProfileUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string }
+        # Sensitive fields a normal user should never be able to set:
+        role: { type: string }
+        is_verified: { type: boolean }
+
+# Every endpoint needs a login, unless it says "security: []".
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      summary: Create an account
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpdate" }
+      responses:
+        "201": { description: Account created }
+
+  /auth/login:
+    post:
+      summary: Log in
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200": { description: Token }
+
+  /products:
+    get:
+      summary: List products (public)
+      security: []
+      responses:
+        "200": { description: Products }
+
+  /products/{product_id}:
+    get:
+      summary: Get one product (public)
+      security: []
+      responses:
+        "200": { description: The product }
+
+  /orders:
+    get:
+      summary: List my orders
+      responses:
+        "200": { description: My orders }
+    post:
+      summary: Place an order
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Order" }
+      responses:
+        "201": { description: Order placed }
+
+  /orders/{order_id}:
+    get:
+      summary: Get one of my orders
+      responses:
+        "200": { description: The order }
+    delete:
+      summary: Cancel one of my orders
+      responses:
+        "204": { description: Cancelled }
+
+  /users/me:
+    patch:
+      summary: Update my profile
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpdate" }
+      responses:
+        "200": { description: Updated }
+
+  /admin/users:
+    get:
+      summary: List all users (admins only)
+      tags: [admin]
+      responses:
+        "200": { description: All users }

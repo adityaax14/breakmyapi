@@ -25,6 +25,14 @@ services:
       interval: 5s
       retries: 10
 
+  # The deliberately-vulnerable practice target. NO published port: it is reachable only from
+  # inside this Docker network (the worker), never from the host or the internet. Safety rule 2.
+  notes-target:
+    build: .
+    command: ["uvicorn", "notes_target.app:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      VULN_FLAGS: missing_auth,bola,mass_assignment   # turn bugs on to see findings; "" = the safe version. See src/notes_target.
+
   api:
     build: .
     env_file: .env   # the Groq key etc. are given to the container when it starts, never baked into the image
@@ -32,6 +40,8 @@ services:
       # Inside Docker, the other services are reached by their service NAME, on their normal port.
       DATABASE_URL: postgresql+psycopg://breakmyapi:breakmyapi@postgres:5432/breakmyapi
       REDIS_URL: redis://redis:6379/0
+      # Inside Docker the practice target is at its service name, so allow that origin.
+      ALLOWED_TARGETS: http://notes-target:8001
     ports:
       - "8000:8000"
     volumes:
@@ -49,6 +59,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://breakmyapi:breakmyapi@postgres:5432/breakmyapi
       REDIS_URL: redis://redis:6379/0
+      ALLOWED_TARGETS: http://notes-target:8001   # the worker sends the test requests here
     volumes:
       - hf-cache:/root/.cache/huggingface   # the agent's retrieve step uses the embedding model too
     depends_on:

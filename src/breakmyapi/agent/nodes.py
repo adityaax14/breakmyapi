@@ -4,14 +4,27 @@ Each node receives the whole notebook (the state) and returns ONLY the parts it 
 Nodes never touch our database or the diary; the scan runner does that between nodes.
 """
 
+import traceback
+from collections import Counter
 from dataclasses import asdict
 
 from langgraph.types import interrupt
 
-from breakmyapi.agent.state import PlannedTest, ScanState, Source
+from breakmyapi.agent import verifiers
+from breakmyapi.agent.state import PlannedTest, ReportSection, ScanState, Source
 from breakmyapi.checks import CHECKS, FIRST_FOUR
+from breakmyapi.rag import answer as advisor
 from breakmyapi.rag import search as library
 from breakmyapi.spec.parser import parse_endpoints
+
+# The frameworks a user can pick, and how we name them when asking the library for fixes.
+FRAMEWORKS = {
+    "generic": "a web API",
+    "fastapi": "FastAPI (Python)",
+    "django": "Django REST Framework (Python)",
+    "express": "Express (Node.js)",
+    "spring": "Spring Boot (Java)",
+}
 
 GUIDANCE_PER_CHECK = 3  # how many library chunks to keep per check type
 
@@ -114,21 +127,24 @@ def after_approve(state: ScanState) -> str:
 
 
 def execute(state: ScanState) -> dict:
-    """Takes the NEXT planned test off the list. Placeholder: it sends nothing yet.
+    """Run the NEXT planned test: one test per run, through the SSRF-guarded probe.
 
-    Each real check (next lessons) will run here, one test per run, through the SSRF-guarded
-    client, and skip any test whose key is already in results (so a re-run never repeats one).
+    Idempotent: a test whose key is already in results (a re-run after a crash) is skipped,
+    so a request is never sent twice.
     """
     test, rest = state["plan"][0], state["plan"][1:]
     done = {r["key"] for r in state["results"]}
     if test["key"] in done:
         return {"plan": rest}  # already ran before a crash: skip it
-    result = {**test, "outcome": "not_run", "note": "this check is not built yet"}
+
+    outcome, note = verifiers.run_test(state["target_url"], test, state["test_token"])
+    result = {**test, "outcome": outcome, "note": note}
     return {"plan": rest, "results": state["results"] + [result]}
 
 
 def judge(state: ScanState) -> dict:
-    """Decides pass / fail for the test execute just ran. Placeholder: nothing to judge yet."""
+    """The verifier in execute already decided pass/fail. (A future lesson adds an LLM
+    second opinion for the 'needs_review' cases; for now there is nothing more to decide.)"""
     return {}
 
 
@@ -145,12 +161,63 @@ def after_plan(state: ScanState) -> str:
 # ---- 6. report ----
 
 
-def report(state: ScanState) -> dict:
-    results = state["results"]
-    not_run = sum(r["outcome"] == "not_run" for r in results)
-    sources = {s["url"] for chunks in state["guidance"].values() for s in chunks}
-    text = (
-        f"{len(state['endpoints'])} endpoints, {len(results)} tests planned, "
-        f"{not_run} not run yet (checks are not built yet), {len(sources)} library sources"
+def fix_advice(check_id: str, framework: str) -> tuple[str | None, list[dict], str]:
+    """Ask the OWASP library how to PREVENT this weakness in the user's framework.
+
+    This is the RAG pipeline from the library lessons (search -> numbered sources in the
+    prompt -> the LLM answers ONLY from them, citing [1], [2]). Returns (advice, sources, note).
+    """
+    # Worded with care (tested on the real model): asking "how in FastAPI?" made the model either
+    # refuse (the sources are not about FastAPI) or invent FastAPI details that were wrong.
+    # So: ask for the sources' prevention steps, and framework details ONLY where a source supports them.
+    question = (
+        f"How do I prevent this weakness: {CHECKS[check_id].catches}? "
+        f"My API is built with {FRAMEWORKS[framework]}. Explain the prevention steps the sources give; "
+        f"only add {FRAMEWORKS[framework]}-specific details where a source supports them."
     )
-    return {"report": text}
+    try:
+        result = advisor.answer(question, check=check_id)
+    except Exception:
+        # The model could be down, out of quota, or not configured. The report must still be
+        # written: without advice, but with the library sources, and saying why.
+        traceback.print_exc()
+        return None, [], "Fix advice is unavailable right now: the AI model could not be reached."
+
+    sources = [
+        {"n": n, "heading": hit.heading, "url": hit.url, "cited": n in result.cited}
+        for n, hit in enumerate(result.sources, start=1)
+    ]
+    if result.text.strip() == advisor.NOT_COVERED:
+        return None, sources, "The OWASP library has no specific advice for this framework."
+    return result.text, sources, ""
+
+
+def report(state: ScanState) -> dict:
+    """One section per check type that was planned: what was tested, and how to prevent it (cited)."""
+    framework = state["framework"] if state["framework"] in FRAMEWORKS else "generic"
+    sections: list[ReportSection] = []
+    for check_id in FIRST_FOUR:  # a fixed order, so every report reads the same way
+        tests = [r for r in state["results"] if r["check"] == check_id]
+        if not tests:
+            continue  # this check type was not planned for any endpoint
+        advice, sources, note = fix_advice(check_id, framework)
+        sections.append(
+            ReportSection(
+                check=check_id,
+                name=CHECKS[check_id].name,
+                counts=dict(Counter(t["outcome"] for t in tests)),  # e.g. {"not_run": 3, "skipped": 1}
+                endpoints=[f"{t['method']} {t['path']}" for t in tests],
+                advice=advice,
+                sources=sources,
+                note=note,
+            )
+        )
+
+    outcomes = Counter(r["outcome"] for r in state["results"])
+    with_advice = sum(s["advice"] is not None for s in sections)
+    text = (
+        f"{len(state['endpoints'])} endpoints, {len(state['results'])} tests planned "
+        f"({outcomes['not_run']} not run yet, {outcomes['skipped']} skipped), "
+        f"fix advice for {with_advice} of {len(sections)} check types"
+    )
+    return {"report": text, "sections": sections}

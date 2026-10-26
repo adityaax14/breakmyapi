@@ -18,7 +18,10 @@ import breakmyapi.api.main as main
 import breakmyapi.scan_runner as scan_runner
 from breakmyapi.db import get_session
 from breakmyapi.models import Base
+from breakmyapi.agent import verifiers
+from breakmyapi.rag import answer as advisor
 from breakmyapi.rag import search as library
+from breakmyapi.rag.answer import Answer
 from breakmyapi.rag.search import Hit
 
 
@@ -29,6 +32,12 @@ def fake_library_search(question, k=3, check=None, **kwargs):
             score=1.0, text="...")
         for i in range(k)
     ]
+
+
+def fake_advice(question, check=None, k=4):
+    """Stands in for the real RAG answer (no embedding model, no database, no LLM call, no cost)."""
+    hits = fake_library_search(question, k=2, check=check)
+    return Answer(text=f"Advice for {check} [1].", sources=hits, cited=[1], tokens=0)
 
 
 @pytest.fixture
@@ -55,6 +64,11 @@ def db(monkeypatch):
 
     monkeypatch.setattr(scan_runner, "checkpointer", memory_checkpointer)
     monkeypatch.setattr(library, "search", fake_library_search)
+    monkeypatch.setattr(advisor, "answer", fake_advice)
+    # The agent-flow tests check the plumbing, not the checks, and must never touch the network.
+    # So verifiers stay as placeholders here; the real ones are tested in test_verifiers.py.
+    monkeypatch.setattr(verifiers, "run_test",
+                        lambda target_url, test, test_token=None: ("not_run", "this check is not built yet"))
     yield TestSession
     main.app.dependency_overrides.clear()
 

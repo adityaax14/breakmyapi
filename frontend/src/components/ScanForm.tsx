@@ -1,10 +1,13 @@
 import { useRef, useState } from "react";
 
-import { ApiError, createScan, type Scan } from "../api";
+import { ApiError, createScan, FRAMEWORKS, type Framework, type Scan } from "../api";
 import { SAMPLE_SPEC } from "../sampleSpec";
 
 export default function ScanForm({ onCreated }: { onCreated: (scan: Scan) => void }) {
-  const [targetUrl, setTargetUrl] = useState("http://localhost:8001");
+  // In Docker the practice target is reached by its service name, not localhost (see docker-compose.yml).
+  const [targetUrl, setTargetUrl] = useState("http://notes-target:8001");
+  const [framework, setFramework] = useState<Framework>("generic");
+  const [testToken, setTestToken] = useState("");
   const [spec, setSpec] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +18,14 @@ export default function ScanForm({ onCreated }: { onCreated: (scan: Scan) => voi
     setBusy(true);
     setError(null);
     try {
-      onCreated(await createScan({ target_url: targetUrl, spec }));
+      onCreated(
+        await createScan({
+          target_url: targetUrl,
+          spec,
+          framework,
+          test_token: testToken.trim() || undefined,
+        }),
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     } finally {
@@ -37,8 +47,42 @@ export default function ScanForm({ onCreated }: { onCreated: (scan: Scan) => voi
           value={targetUrl}
           onChange={(e) => setTargetUrl(e.target.value)}
           className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/30"
-          placeholder="http://localhost:8001"
+          placeholder="http://notes-target:8001"
         />
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">Your framework</label>
+        <select
+          value={framework}
+          onChange={(e) => setFramework(e.target.value as Framework)}
+          className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/30"
+        >
+          {Object.entries(FRAMEWORKS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-slate-500">The report's fix advice is written for this framework.</p>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">
+          Test account token <span className="font-normal text-slate-500">(optional)</span>
+        </label>
+        <input
+          value={testToken}
+          onChange={(e) => setTestToken(e.target.value)}
+          type="password"
+          className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2.5 font-mono text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/30"
+          placeholder="Bearer token for a throwaway test account"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Log in to your target as a disposable test account yourself and paste its token. Some checks
+          (like object-level access) need a logged-in session to run; without one they're skipped with a
+          note instead of guessed at. We never attempt to log in or guess credentials for you.
+        </p>
       </div>
 
       <div>

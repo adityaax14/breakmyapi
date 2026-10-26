@@ -12,9 +12,21 @@ export interface Scan {
   status: ScanStatus;
 }
 
+// The frameworks the backend accepts (ScanCreate.framework); the report's fixes are written for it.
+export const FRAMEWORKS = {
+  generic: "Other / not sure",
+  fastapi: "FastAPI (Python)",
+  django: "Django REST Framework (Python)",
+  express: "Express (Node.js)",
+  spring: "Spring Boot (Java)",
+} as const;
+export type Framework = keyof typeof FRAMEWORKS;
+
 export interface ScanCreate {
   target_url: string;
   spec: string;
+  framework: Framework;
+  test_token?: string; // optional: a bearer token for a throwaway test account on the target
 }
 
 export const isFinished = (s: ScanStatus) =>
@@ -179,6 +191,31 @@ export interface PlannedTest {
 export interface ScanDetail extends Scan {
   approval_request: { tests: PlannedTest[] } | null;
   approval: "approve" | "reject" | null;
+  framework: Framework;
+  report: ScanReport | null; // filled once the scan has completed
+}
+
+// The finished report: one section per check type that was tested.
+export interface ReportSource {
+  n: number; // the [n] the advice uses to cite it
+  heading: string;
+  url: string;
+  cited: boolean; // did the advice actually cite this source?
+}
+
+export interface ReportSection {
+  check: string;
+  name: string;
+  counts: Record<string, number>; // e.g. {"not_run": 3, "skipped": 1}
+  endpoints: string[];
+  advice: string | null; // null when the model was unavailable or the library had nothing
+  sources: ReportSource[];
+  note: string;
+}
+
+export interface ScanReport {
+  summary: string;
+  sections: ReportSection[];
 }
 
 export const getScan = (id: string) => request<ScanDetail>("GET", `/scans/${id}`);

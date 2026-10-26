@@ -22,6 +22,13 @@ class Scan(Base):
     approval_request: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
     # The user's answer: "approve" or "reject" (empty until they answer).
     approval: Mapped[str | None] = mapped_column(String(20))
+    # The user's framework, so fix advice is written for it: generic, fastapi, django, express, spring.
+    framework: Mapped[str] = mapped_column(String(20), default="generic", server_default="generic")
+    # The finished report: {"summary": "...", "sections": [...]}. Empty until the scan completes.
+    report: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    # Optional: a bearer token for a THROWAWAY test account on the target, so checks that need
+    # to be logged in (object-level access, mass assignment...) can run. Never required.
+    test_token: Mapped[str | None] = mapped_column(String(2000))
     # JSONB in Postgres; plain JSON in SQLite, which the tests use (CI has no Postgres).
     spec: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
     # Who started it. Empty only for old scans made before accounts existed (nobody can see those).
