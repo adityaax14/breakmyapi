@@ -2,9 +2,8 @@ import { useEffect, useState } from "react";
 
 import { ApiError, answerApproval, getScan, type PlannedTest, type Scan } from "../api";
 
-// Shown while a scan is "waiting_approval". It loads the agent's question (GET /scans/{id}),
-// lists the tests that could change data, and sends the answer (POST /scans/{id}/approval).
-// After answering, the scan goes back in the queue and the live log continues by itself.
+// Shown while a scan is "waiting_approval". Loads the agent's question, lists the tests that could
+// change data, and sends the answer. After answering, the scan re-queues and the live log continues.
 export default function ApprovalCard({ scanId, onAnswered }: { scanId: string; onAnswered: (scan: Scan) => void }) {
   const [tests, setTests] = useState<PlannedTest[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,40 +27,44 @@ export default function ApprovalCard({ scanId, onAnswered }: { scanId: string; o
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-amber-400/40 bg-amber-500/10 p-4">
-      <div>
-        <div className="font-semibold text-amber-100">The agent is waiting for your approval</div>
-        <p className="mt-1 text-sm text-amber-200/80">
-          These tests use methods that can change data on your API. Nothing has been sent yet.
-        </p>
+    <div className="rounded-xl border border-amber-400/25 bg-amber-500/[0.06] p-5">
+      <div className="flex items-center gap-2">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-400/20 text-xs text-amber-300">
+          !
+        </span>
+        <div className="text-sm font-semibold text-amber-100">Approval needed</div>
       </div>
+      <p className="mt-1.5 text-sm text-amber-200/70">
+        These tests use methods that can change data on your API. Nothing has been sent yet.
+      </p>
 
-      {tests === null && !error && <div className="text-sm text-amber-200/70">Loading…</div>}
+      {tests === null && !error && <div className="mt-3 text-sm text-amber-200/60">Loading…</div>}
       {tests && (
-        <ul className="space-y-1 font-mono text-xs text-amber-50">
+        <ul className="mono mt-4 space-y-1 text-xs">
           {tests.map((t) => (
-            <li key={t.key}>
-              <span className="text-amber-300">{t.method}</span> {t.path}{" "}
-              <span className="text-amber-200/60">· {t.check}</span>
+            <li key={t.key} className="flex items-center gap-2">
+              <span className="w-14 shrink-0 font-semibold text-amber-300">{t.method}</span>
+              <span className="text-amber-50">{t.path}</span>
+              <span className="text-amber-200/50">· {t.check}</span>
             </li>
           ))}
         </ul>
       )}
 
-      {error && <div className="text-sm text-rose-200">{error}</div>}
+      {error && <div className="mt-3 text-sm text-rose-300">{error}</div>}
 
-      <div className="flex gap-3">
+      <div className="mt-5 flex gap-3">
         <button
           disabled={busy || !tests}
           onClick={() => decide("approve")}
-          className="flex-1 rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:opacity-50"
+          className="btn flex-1 bg-amber-400 text-black hover:bg-amber-300"
         >
           Approve these tests
         </button>
         <button
           disabled={busy || !tests}
           onClick={() => decide("reject")}
-          className="flex-1 rounded-xl border border-amber-400/50 px-4 py-2 text-sm text-amber-100 transition hover:bg-amber-500/10 disabled:opacity-50"
+          className="btn flex-1 border border-amber-400/30 text-amber-100 hover:bg-amber-500/10"
         >
           Skip them
         </button>

@@ -24,6 +24,11 @@ class Handler(BaseHTTPRequestHandler):
     bodies: dict = {}
 
     def _reply(self):
+        # Drain the request body if there is one, so keep-alive connections stay clean for
+        # requests that send JSON (PATCH/PUT/POST probes).
+        length = int(self.headers.get("Content-Length", 0))
+        if length:
+            self.rfile.read(length)
         status = self.routes.get((self.command, self.path), 404)
         default_body = b'{"ok": true}' if 200 <= status < 300 else b'{"detail": "no"}'
         body = self.bodies.get((self.command, self.path), default_body)
@@ -144,7 +149,7 @@ def test_missing_auth_reports_an_unreachable_target(monkeypatch):
 
 
 def test_run_test_leaves_unbuilt_checks_as_not_run():
-    outcome, note = verifiers.run_test("http://t", {"check": "excessive_data", "method": "GET", "path": "/x"})
+    outcome, note = verifiers.run_test("http://t", {"check": "leaky_errors", "method": "GET", "path": "/x"})
     assert outcome == "not_run" and note == "this check is not built yet"
 
 

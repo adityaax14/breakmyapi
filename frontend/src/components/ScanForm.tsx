@@ -40,68 +40,68 @@ export default function ScanForm({ onCreated }: { onCreated: (scan: Scan) => voi
   }
 
   return (
-    <form onSubmit={submit} className="space-y-5">
+    <form onSubmit={submit} className="space-y-6">
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Target API URL</label>
-        <input
-          value={targetUrl}
-          onChange={(e) => setTargetUrl(e.target.value)}
-          className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/30"
-          placeholder="http://notes-target:8001"
-        />
+        <div className="eyebrow">New scan</div>
+        <h2 className="mt-1 text-lg font-semibold tracking-tight">Configure your target</h2>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label">Target API URL</label>
+          <input
+            value={targetUrl}
+            onChange={(e) => setTargetUrl(e.target.value)}
+            className="field mono"
+            placeholder="https://api.yoursite.com"
+          />
+        </div>
+        <div>
+          <label className="label">Framework</label>
+          <div className="relative">
+            <select
+              value={framework}
+              onChange={(e) => setFramework(e.target.value as Framework)}
+              className="field appearance-none pr-10"
+            >
+              {Object.entries(FRAMEWORKS).map(([value, lbl]) => (
+                <option key={value} value={value} className="bg-zinc-900">
+                  {lbl}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500">▾</span>
+          </div>
+        </div>
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Your framework</label>
-        <select
-          value={framework}
-          onChange={(e) => setFramework(e.target.value as Framework)}
-          className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/30"
-        >
-          {Object.entries(FRAMEWORKS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1 text-xs text-slate-500">The report's fix advice is written for this framework.</p>
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">
-          Test account token <span className="font-normal text-slate-500">(optional)</span>
+        <label className="label">
+          Test account token <span className="font-normal text-zinc-600">· optional</span>
         </label>
         <input
           value={testToken}
           onChange={(e) => setTestToken(e.target.value)}
           type="password"
-          className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2.5 font-mono text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/30"
+          className="field mono"
           placeholder="Bearer token for a throwaway test account"
         />
-        <p className="mt-1 text-xs text-slate-500">
-          Log in to your target as a disposable test account yourself and paste its token. Some checks
-          (like object-level access) need a logged-in session to run; without one they're skipped with a
-          note instead of guessed at. We never attempt to log in or guess credentials for you.
+        <p className="hint">
+          Needed for checks that require a logged-in session (object-level access, mass assignment). Create a
+          disposable account on your target, log in yourself, and paste its token. We never log in or guess
+          credentials for you.
         </p>
       </div>
 
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <label className="text-sm font-medium text-slate-300">OpenAPI spec (YAML or JSON)</label>
-          <div className="flex gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => setSpec(SAMPLE_SPEC)}
-              className="rounded-lg border border-slate-700 px-2.5 py-1 text-slate-300 transition hover:border-indigo-400 hover:text-white"
-            >
+          <label className="label mb-0">OpenAPI spec</label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setSpec(SAMPLE_SPEC)} className="btn btn-ghost px-3 py-1 text-xs">
               Load sample
             </button>
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              className="rounded-lg border border-slate-700 px-2.5 py-1 text-slate-300 transition hover:border-indigo-400 hover:text-white"
-            >
-              Upload file
+            <button type="button" onClick={() => fileInput.current?.click()} className="btn btn-ghost px-3 py-1 text-xs">
+              Upload
             </button>
             <input ref={fileInput} type="file" accept=".yaml,.yml,.json" onChange={loadFile} hidden />
           </div>
@@ -110,23 +110,19 @@ export default function ScanForm({ onCreated }: { onCreated: (scan: Scan) => voi
           value={spec}
           onChange={(e) => setSpec(e.target.value)}
           spellCheck={false}
-          className="h-64 w-full resize-y rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 font-mono text-xs leading-relaxed outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/30"
-          placeholder="Paste your openapi.yaml here, or use Load sample"
+          className="field mono h-60 resize-y py-3 text-xs leading-relaxed"
+          placeholder="Paste your openapi.yaml or .json here — or use Load sample"
         />
       </div>
 
       {error && (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.07] px-4 py-3 text-sm text-rose-300">
           {error}
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={busy || !spec.trim() || !targetUrl.trim()}
-        className="w-full rounded-xl bg-indigo-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {busy ? "Starting…" : "Start scan"}
+      <button type="submit" disabled={busy || !spec.trim() || !targetUrl.trim()} className="btn btn-primary w-full py-3">
+        {busy ? "Starting scan…" : "Start scan →"}
       </button>
     </form>
   );

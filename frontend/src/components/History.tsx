@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 import { ApiError, listScans, PAGE_SIZE, type Scan, type ScanPage } from "../api";
 
 const STATUS_STYLE: Record<string, string> = {
-  completed: "border-emerald-400/40 bg-emerald-500/10 text-emerald-200",
-  failed: "border-rose-400/40 bg-rose-500/10 text-rose-200",
-  running: "border-indigo-400/40 bg-indigo-500/10 text-indigo-200",
-  queued: "border-slate-600 bg-slate-800/60 text-slate-300",
-  waiting_approval: "border-amber-400/40 bg-amber-500/10 text-amber-200",
-  cancelled: "border-slate-600 bg-slate-800/60 text-slate-400",
+  completed: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+  failed: "border-rose-400/30 bg-rose-500/10 text-rose-300",
+  running: "border-white/20 bg-white/[0.05] text-zinc-200",
+  queued: "border-white/10 bg-white/[0.02] text-zinc-400",
+  waiting_approval: "border-amber-400/30 bg-amber-500/10 text-amber-300",
+  cancelled: "border-white/10 bg-white/[0.02] text-zinc-500",
 };
 
 export default function History({ onOpen }: { onOpen: (scan: Scan) => void }) {
@@ -16,7 +16,6 @@ export default function History({ onOpen }: { onOpen: (scan: Scan) => void }) {
   const [data, setData] = useState<ScanPage | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load a page whenever the page number changes.
   useEffect(() => {
     setError(null);
     listScans(page)
@@ -31,34 +30,41 @@ export default function History({ onOpen }: { onOpen: (scan: Scan) => void }) {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-semibold">Scan history</h2>
-        <p className="mt-1 text-sm text-slate-400">Every scan, newest first. Click one to replay its live log.</p>
+        <div className="eyebrow">History</div>
+        <h2 className="mt-1 text-lg font-semibold tracking-tight">Your scans</h2>
+        <p className="mt-1 text-sm text-zinc-500">Newest first. Open one to replay its activity and report.</p>
       </div>
 
       {error && (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div>
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.07] px-4 py-3 text-sm text-rose-300">
+          {error}
+        </div>
       )}
 
-      {data && data.items.length === 0 && <div className="text-sm text-slate-500">No scans yet.</div>}
+      {data && data.items.length === 0 && (
+        <div className="rounded-xl border border-dashed border-white/10 px-4 py-10 text-center text-sm text-zinc-600">
+          No scans yet. Start one from the Scan tab.
+        </div>
+      )}
 
       {data && data.items.length > 0 && (
-        <ul className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800">
+        <ul className="divide-y divide-white/5 overflow-hidden rounded-xl border border-white/10">
           {data.items.map((scan) => (
             <li key={scan.id}>
               <button
                 onClick={() => onOpen(scan)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-900/80"
+                className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-white/[0.03]"
               >
                 <span
-                  className={`w-24 shrink-0 rounded-full border px-2 py-0.5 text-center text-xs ${
+                  className={`w-28 shrink-0 rounded-full border px-2 py-0.5 text-center text-[11px] font-medium ${
                     STATUS_STYLE[scan.status] ?? STATUS_STYLE.queued
                   }`}
                 >
-                  {scan.status}
+                  {scan.status.replace("_", " ")}
                 </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-300">{scan.target_url}</span>
-                <span className="shrink-0 font-mono text-xs text-slate-500">{scan.id.slice(0, 8)}</span>
-                <span className="hidden shrink-0 text-xs text-slate-500 sm:block">
+                <span className="mono min-w-0 flex-1 truncate text-xs text-zinc-300">{scan.target_url}</span>
+                <span className="mono hidden shrink-0 text-xs text-zinc-600 sm:block">{scan.id.slice(0, 8)}</span>
+                <span className="hidden shrink-0 text-xs text-zinc-600 md:block">
                   {new Date(scan.created_at).toLocaleString()}
                 </span>
               </button>
@@ -68,22 +74,18 @@ export default function History({ onOpen }: { onOpen: (scan: Scan) => void }) {
       )}
 
       {data && data.total > 0 && (
-        <div className="flex items-center justify-between text-sm text-slate-400">
+        <div className="flex items-center justify-between text-sm text-zinc-500">
           <span>
-            Showing {first}–{last} of {data.total}
+            {first}–{last} of {data.total}
           </span>
           <div className="flex gap-2">
-            <button
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 transition hover:border-indigo-400 disabled:opacity-40"
-            >
+            <button disabled={page === 0} onClick={() => setPage((p) => p - 1)} className="btn btn-ghost px-3 py-1.5 text-xs">
               Newer
             </button>
             <button
               disabled={page + 1 >= pages}
               onClick={() => setPage((p) => p + 1)}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 transition hover:border-indigo-400 disabled:opacity-40"
+              className="btn btn-ghost px-3 py-1.5 text-xs"
             >
               Older
             </button>

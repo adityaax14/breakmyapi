@@ -7,21 +7,29 @@ export default function RequestLog() {
   const entries = useSyncExternalStore(subscribeLog, getLog);
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
-      <h2 className="text-sm font-semibold text-slate-200">Network log</h2>
-      <p className="mt-1 text-xs text-slate-500">Every request this page sends to the backend.</p>
+    <div className="card sticky top-8 p-5">
+      <div className="flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
+        <h2 className="eyebrow">Network log</h2>
+      </div>
+      <p className="mt-1.5 text-xs text-zinc-600">Every request this page sends to the backend.</p>
 
-      <div className="mt-4 max-h-[28rem] space-y-1.5 overflow-y-auto font-mono text-xs">
-        {entries.length === 0 && <div className="text-slate-600">No requests yet.</div>}
+      <div className="mono mt-4 max-h-[26rem] space-y-1 overflow-y-auto text-xs">
+        {entries.length === 0 && <div className="text-zinc-700">No requests yet.</div>}
         {entries.map((e) => {
           const ok = e.status === "stream" || (typeof e.status === "number" && e.status < 400);
           return (
-            <div key={e.id} className="flex items-center gap-2 rounded-lg bg-slate-900/60 px-2.5 py-1.5">
-              <span className="text-slate-500">{e.time}</span>
-              <span className={e.method === "POST" ? "text-amber-300" : "text-sky-300"}>{e.method}</span>
-              <span className="min-w-0 flex-1 truncate text-slate-300">{e.path}</span>
-              <span className={ok ? "text-emerald-300" : "text-rose-300"}>{e.status}</span>
-              <span className="text-slate-600">{e.ms}ms</span>
+            <div
+              key={e.id}
+              className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-black/20 px-2.5 py-1.5"
+            >
+              <span className="text-zinc-600">{e.time.slice(0, 8)}</span>
+              <span className={e.method === "POST" ? "font-semibold text-amber-400/80" : "font-semibold text-sky-400/80"}>
+                {e.method}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-zinc-400">{e.path}</span>
+              <span className={ok ? "text-emerald-400/80" : "text-rose-400/80"}>{e.status}</span>
+              <span className="text-zinc-700">{e.ms}ms</span>
             </div>
           );
         })}

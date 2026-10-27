@@ -12,15 +12,11 @@ type Tab = "scan" | "history" | "library";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("scan");
-  // No scan yet -> show the form. A scan exists -> show its live progress.
   const [scan, setScan] = useState<Scan | null>(null);
-  // "checking" while we ask the server whether a saved token still works.
   const [user, setUser] = useState<User | null | "checking">(getToken() ? "checking" : null);
 
   useEffect(() => {
-    // On start-up: a token saved from last time? Ask the server who it belongs to.
     if (getToken()) getMe().then(setUser).catch(() => setUser(null));
-    // Any 401 later (session expired) -> back to the login screen.
     return onLoggedOut(() => {
       setUser(null);
       setScan(null);
@@ -35,69 +31,84 @@ export default function App() {
 
   const loggedIn = user !== null && user !== "checking";
 
+  function go(next: Tab) {
+    setTab(next);
+    if (next !== "scan") setScan(null);
+  }
+
   const tabClass = (name: Tab) =>
     [
-      "rounded-lg px-3 py-1.5 text-sm font-medium transition",
-      tab === name ? "bg-slate-800 text-white" : "text-slate-400 hover:text-white",
+      "relative rounded-lg px-3.5 py-1.5 text-sm font-medium transition",
+      tab === name ? "text-white" : "text-zinc-500 hover:text-zinc-200",
     ].join(" ");
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-10">
-      <header className="mb-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500 text-lg font-black text-white">
-              B
-            </div>
-            <span className="text-lg font-semibold tracking-tight">BreakMyAPI</span>
-          </div>
-          <nav className="flex gap-1 rounded-xl border border-slate-800 bg-slate-900/60 p-1">
-            <button className={tabClass("scan")} onClick={() => setTab("scan")}>
+    <div className="mx-auto max-w-6xl px-5 pb-24 pt-8">
+      {/* ---- top bar ---- */}
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <button onClick={() => go("scan")} className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[15px] font-black text-black">
+            B
+          </span>
+          <span className="text-[15px] font-semibold tracking-tight">BreakMyAPI</span>
+        </button>
+
+        <div className="flex items-center gap-3">
+          <nav className="flex items-center gap-0.5 rounded-xl border border-white/10 bg-white/[0.02] p-1 backdrop-blur">
+            <button className={tabClass("scan")} onClick={() => go("scan")}>
               Scan
             </button>
-            <button className={tabClass("history")} onClick={() => setTab("history")}>
+            <button className={tabClass("history")} onClick={() => go("history")}>
               History
             </button>
-            <button className={tabClass("library")} onClick={() => setTab("library")}>
+            <button className={tabClass("library")} onClick={() => go("library")}>
               Library
             </button>
-            {loggedIn && (
-              <>
-                <span className="hidden max-w-48 truncate self-center px-2 text-xs text-slate-500 sm:block">
-                  {user.email}
-                </span>
-                <button
-                  onClick={handleLogOut}
-                  className="rounded-lg px-3 py-1.5 text-sm text-slate-400 transition hover:text-white"
-                >
-                  Log out
-                </button>
-              </>
-            )}
           </nav>
+          {loggedIn && (
+            <div className="flex items-center gap-2">
+              <span className="hidden max-w-[11rem] truncate text-xs text-zinc-500 sm:block">{user.email}</span>
+              <button onClick={handleLogOut} className="btn btn-ghost px-3 py-1.5 text-xs">
+                Log out
+              </button>
+            </div>
+          )}
         </div>
-        <h1 className="mt-8 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">
-          Find the bugs in your API before your interviewer does.
-        </h1>
-        <p className="mt-3 max-w-2xl text-slate-400">
-          Submit your OpenAPI spec and an agent tests your running API for common security and
-          reliability mistakes.
-        </p>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <main className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 backdrop-blur">
+      {/* ---- hero ---- */}
+      <section className="mt-16 mb-10 text-center">
+        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-zinc-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          Autonomous API security agent
+        </div>
+        <h1 className="mx-auto max-w-3xl text-balance text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl">
+          Find the bugs in your API
+          <br className="hidden sm:block" /> before your interviewer does.
+        </h1>
+        <p className="mx-auto mt-4 max-w-xl text-balance text-[15px] leading-relaxed text-zinc-400">
+          Submit an OpenAPI spec and an agent probes your running API for the OWASP API Top&nbsp;10 —
+          then writes a cited report with fixes for your framework.
+        </p>
+      </section>
+
+      {/* ---- workspace ---- */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <main className="card p-6 sm:p-7">
           {tab === "library" ? (
-            <Library /> // the OWASP library is public: no login needed
+            <Library />
           ) : user === "checking" ? (
-            <div className="py-10 text-center text-sm text-slate-500">Checking your login…</div>
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-500" />
+              Checking your session…
+            </div>
           ) : user === null ? (
             <Login onLoggedIn={setUser} />
           ) : tab === "history" ? (
             <History
               onOpen={(picked) => {
-                setScan(picked); // open the picked scan ...
-                setTab("scan"); // ... on the Scan tab, where its live log replays
+                setScan(picked);
+                setTab("scan");
               }}
             />
           ) : scan ? (

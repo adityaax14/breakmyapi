@@ -1,18 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cancelScan, isFinished, streamScan, type Scan, type ScanStatus } from "../api";
 import ApprovalCard from "./ApprovalCard";
 import ReportView from "./ReportView";
 
-const STEPS: { key: ScanStatus; label: string; hint: string }[] = [
-  { key: "queued", label: "Queued", hint: "Saved in the database, waiting for the runner" },
-  { key: "running", label: "Running", hint: "The runner is working on it" },
-  { key: "completed", label: "Completed", hint: "Done" },
-];
+const STEPS = [
+  { key: "queued", label: "Queued", hint: "Saved and waiting for a runner" },
+  { key: "running", label: "Running", hint: "Reading the spec, retrieving guidance, probing endpoints" },
+  { key: "completed", label: "Report", hint: "Findings and fixes" },
+] as const;
 
 function stepIndex(status: ScanStatus) {
   if (status === "failed" || status === "cancelled") return 2;
-  if (status === "waiting_approval") return 1; // paused in the middle of "Running"
+  if (status === "waiting_approval") return 1;
   return STEPS.findIndex((s) => s.key === status);
 }
 
@@ -32,15 +32,12 @@ function useScan(initial: Scan) {
       (status) => setScan((current) => ({ ...current, status })),
       () => setError("Lost the live connection to the API."),
     );
-    return stop; // leaving the page closes the connection
+    return stop;
   }, [initial.id]);
 
-  // Ask the backend to stop. The new status also arrives through the live stream,
-  // but we use the reply too, so the page changes even if the stream is slow.
   async function cancel() {
     try {
-      const updated = await cancelScan(initial.id);
-      setScan(updated);
+      setScan(await cancelScan(initial.id));
     } catch (err) {
       setError((err as Error).message);
     }
@@ -49,49 +46,95 @@ function useScan(initial: Scan) {
   return { scan, setScan, log, error, cancel };
 }
 
+// Colour the [PASS]/[FAIL]/[REVIEW]/[ERROR] tag at the start of an activity line.
+const TAG_STYLE: Record<string, string> = {
+  PASS: "text-emerald-400",
+  FAIL: "text-rose-400",
+  REVIEW: "text-amber-400",
+  ERROR: "text-zinc-400",
+};
+
+function LogLine({ line }: { line: string }) {
+  const m = line.match(/^\[(PASS|FAIL|REVIEW|ERROR)\]\s+(.*)$/);
+  if (m) {
+    return (
+      <div className="flex gap-2">
+        <span className={`font-semibold ${TAG_STYLE[m[1]]}`}>{m[1]}</span>
+        <span className="min-w-0 flex-1 text-zinc-400">{m[2]}</span>
+      </div>
+    );
+  }
+  return <div className="text-zinc-500">{line}</div>;
+}
+
 export default function ScanProgress({ initial, onReset }: { initial: Scan; onReset: () => void }) {
   const { scan, setScan, log, error, cancel } = useScan(initial);
   const [cancelling, setCancelling] = useState(false);
+  const logEnd = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [log.length]);
+
   const current = stepIndex(scan.status);
   const failed = scan.status === "failed" || scan.status === "cancelled";
   const done = isFinished(scan.status);
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-sm">
-        <div className="text-slate-400">Scan ID</div>
-        <div className="mt-0.5 break-all font-mono text-xs text-slate-200">{scan.id}</div>
-        <div className="mt-3 text-slate-400">Target</div>
-        <div className="mt-0.5 font-mono text-xs text-slate-200">{scan.target_url}</div>
+    <div className="space-y-7">
+      {/* ---- meta ---- */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="eyebrow">Target</div>
+          <div className="mono mt-1 truncate text-sm text-zinc-200">{scan.target_url}</div>
+        </div>
+        <div className="min-w-0 text-right">
+          <div className="eyebrow">Scan</div>
+          <div className="mono mt-1 text-sm text-zinc-500">{scan.id.slice(0, 8)}</div>
+        </div>
       </div>
 
-      <ol className="space-y-4">
+      {/* ---- stepper ---- */}
+      <ol className="relative space-y-6 pl-1">
         {STEPS.map((step, i) => {
           const reached = i <= current;
           const active = i === current && !done;
           const isLast = i === STEPS.length - 1;
           const bad = isLast && failed;
+          const complete = reached && !active && !bad;
           const label = bad ? (scan.status === "failed" ? "Failed" : "Cancelled") : step.label;
+
           return (
-            <li key={step.key} className="flex items-start gap-4">
+            <li key={step.key} className="relative flex items-start gap-4">
+              {/* connecting rail */}
+              {i < STEPS.length - 1 && (
+                <span
+                  className={`absolute left-[13px] top-7 h-[calc(100%+0.3rem)] w-px ${
+                    i < current ? "bg-white/25" : "bg-white/10"
+                  }`}
+                />
+              )}
               <span
                 className={[
-                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold",
+                  "relative z-10 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border text-[11px] font-bold transition",
                   bad
-                    ? "border-rose-400 bg-rose-500/20 text-rose-200"
-                    : reached
-                      ? "border-emerald-400 bg-emerald-500/20 text-emerald-200"
-                      : "border-slate-700 text-slate-500",
-                  active ? "animate-pulse" : "",
+                    ? "border-rose-400/60 bg-rose-500/15 text-rose-300"
+                    : complete
+                      ? "border-white/80 bg-white text-black"
+                      : active
+                        ? "border-white/60 text-white"
+                        : "border-white/15 text-zinc-600",
                 ].join(" ")}
               >
-                {bad ? "✕" : reached && !active ? "✓" : i + 1}
+                {active && <span className="absolute inset-0 animate-ping rounded-full border border-white/40" />}
+                {bad ? "✕" : complete ? "✓" : i + 1}
               </span>
-              <div>
-                <div className={reached ? "font-medium text-slate-100" : "font-medium text-slate-500"}>
+              <div className="pt-0.5">
+                <div className={`text-sm font-semibold ${reached ? "text-zinc-100" : "text-zinc-600"}`}>
                   {label}
+                  {active && <span className="ml-2 text-xs font-normal text-zinc-500">in progress…</span>}
                 </div>
-                <div className="text-xs text-slate-500">{step.hint}</div>
+                <div className="mt-0.5 text-xs text-zinc-500">{step.hint}</div>
               </div>
             </li>
           );
@@ -102,19 +145,24 @@ export default function ScanProgress({ initial, onReset }: { initial: Scan; onRe
         <ApprovalCard scanId={scan.id} onAnswered={(updated) => setScan(updated)} />
       )}
 
-      {log.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Live activity</div>
-          <ol className="space-y-1 font-mono text-xs text-slate-300">
+      {/* ---- live activity ---- */}
+      {log.length > 0 && !done && (
+        <div className="card-inset overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-white/5 px-4 py-2.5">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+            <span className="eyebrow">Live activity</span>
+          </div>
+          <div className="mono max-h-56 space-y-1 overflow-y-auto p-4 text-xs">
             {log.map((line, i) => (
-              <li key={i}>{line}</li>
+              <LogLine key={i} line={line} />
             ))}
-          </ol>
+            <div ref={logEnd} />
+          </div>
         </div>
       )}
 
       {error && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-300">
           {error}
         </div>
       )}
@@ -123,32 +171,31 @@ export default function ScanProgress({ initial, onReset }: { initial: Scan; onRe
         <ReportView scanId={scan.id} />
       ) : (
         !done && (
-          <div className="rounded-xl border border-dashed border-slate-700 px-4 py-5 text-center text-sm text-slate-500">
+          <div className="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-zinc-600">
             The report appears here when the scan completes.
           </div>
         )
       )}
 
-      {!done && (
-        <button
-          disabled={cancelling}
-          onClick={async () => {
-            setCancelling(true);
-            await cancel();
-            setCancelling(false);
-          }}
-          className="w-full rounded-xl border border-rose-500/50 px-4 py-2.5 text-sm text-rose-200 transition hover:bg-rose-500/10 disabled:opacity-50"
-        >
-          {cancelling ? "Cancelling…" : "Cancel scan"}
+      {/* ---- actions ---- */}
+      <div className="flex gap-3">
+        {!done && (
+          <button
+            disabled={cancelling}
+            onClick={async () => {
+              setCancelling(true);
+              await cancel();
+              setCancelling(false);
+            }}
+            className="btn btn-danger flex-1"
+          >
+            {cancelling ? "Cancelling…" : "Cancel scan"}
+          </button>
+        )}
+        <button onClick={onReset} className={`btn ${done ? "btn-primary w-full" : "btn-ghost flex-1"}`}>
+          {done ? "New scan →" : "New scan"}
         </button>
-      )}
-
-      <button
-        onClick={onReset}
-        className="w-full rounded-xl border border-slate-700 px-4 py-2.5 text-sm text-slate-300 transition hover:border-indigo-400 hover:text-white"
-      >
-        New scan
-      </button>
+      </div>
     </div>
   );
 }
